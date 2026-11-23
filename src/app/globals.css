@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+/*
+  Estilo "Framed sheet" (design-taste-frontend, seed 960231821) com a paleta do Volpe Barber:
+  laranja #eb5f00 (marca e dados), #b84a00 (botões e texto, 5.2:1 com branco), preto #050505 e cinzas frios.
+  A cor da marca de cada restaurante só aparece no cardápio público (var --brand).
+*/
+@theme {
+  --color-ground: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-raised: #eef2f7;
+  --color-active: #e2e8f0;
+  --color-line: #e2e8f0;
+  --color-rule: #eef2f7;
+  --color-control: #cbd5e1;
+  --color-ink: #050505;
+  --color-muted: #52525b;
+  --color-brand: #eb5f00;
+  --color-accent: #b84a00;
+  --color-accent-hover: #9a3e00;
+  --color-accent-soft: #fff4eb;
+  --color-positive: #1e7b4f;
+  --color-negative: #c4242a;
+  --color-warning: #92400e;
+  --color-pill-positive-bg: #dcfae5;
+  --color-pill-positive-ink: #04250e;
+  --color-pill-negative-bg: #ffedea;
+  --color-pill-negative-ink: #831c1e;
+  --color-pill-warning-bg: #fffbeb;
+  --color-pill-warning-ink: #92400e;
+  --color-pill-neutral-bg: #eef2f7;
+  --color-pill-neutral-ink: #3f3f46;
+
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-sheet: 16px;
+
+  --font-sans: var(--font-plex-sans), "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: light;
+  --brand: #b84a00;
+  --brand-ink: #ffffff;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* O Tailwind 4 tirou o cursor de mão dos botões; devolve em tudo que é clicável. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="radio"],
+  [role="switch"]:not(:disabled),
+  select:not(:disabled),
+  summary,
+  label:has(input:not(:disabled)),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="color"],
+  input[type="file"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-accent-soft);
+}
+
+dialog::backdrop {
+  background: rgb(19 20 22 / 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
