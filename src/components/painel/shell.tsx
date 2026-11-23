@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ChefHat,
   ExternalLink,
   House,
   LogOut,
@@ -11,6 +12,7 @@ import {
   QrCode,
   ReceiptText,
   Settings,
+  Users,
   UtensilsCrossed,
   Volume2,
   VolumeX,
@@ -26,12 +28,15 @@ import { Wordmark } from "@/components/brand/mark";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { PainelContext, usePainel, type PainelValue } from "@/components/painel/painel-context";
 import { StoreStatusControl } from "@/components/painel/store-status-control";
+import { ROLE_LABEL, canManageStore, canSee, homeFor } from "@/lib/domain/roles";
 
 const NAV = [
   { href: "/painel", label: "Visão geral", icon: House },
   { href: "/painel/pedidos", label: "Pedidos", icon: ReceiptText },
+  { href: "/painel/cozinha", label: "Tela de preparo", icon: ChefHat },
   { href: "/painel/cardapio", label: "Cardápio", icon: UtensilsCrossed },
   { href: "/painel/mesas", label: "Mesas e QR code", icon: QrCode },
+  { href: "/painel/equipe", label: "Equipe", icon: Users },
   { href: "/painel/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 
@@ -52,14 +57,14 @@ function useSoundPreference(): [boolean, (v: boolean) => void] {
       return true;
     }
   });
-  const update = (v: boolean) => {
+  const update = useCallback((v: boolean) => {
     setOn(v);
     try {
       window.localStorage.setItem("comanda:som", v ? "on" : "off");
     } catch {
       // a preferência vale só nesta aba
     }
-  };
+  }, []);
   return [on, update];
 }
 
@@ -77,20 +82,35 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     if (db && authResolved && !account) router.replace("/entrar");
   }, [db, authResolved, account, router]);
 
+  const pathname = usePathname();
+  // Contas locais (demonstração e simulação) são donas da própria loja.
+  const role = account?.role ?? "owner";
+  const allowed = canSee(role, pathname);
+
+  // Tela que a função não usa: vai para a tela inicial dela.
+  useEffect(() => {
+    if (store && !allowed) router.replace(homeFor(role));
+  }, [store, allowed, role, router]);
+
   const value = useMemo<PainelValue | null>(
-    () => (db && account && store ? { db, account, store, now } : null),
-    [db, account, store, now],
+    () => (db && account && store ? { db, account, store, now, role, soundOn, setSoundOn } : null),
+    [db, account, store, now, role, soundOn, setSoundOn],
   );
 
   if (db && authResolved && account && !store) return <MissingStore />;
-  if (!value) return <ShellSkeleton />;
+  if (!value || !allowed) return <ShellSkeleton />;
 
   return (
     <PainelContext.Provider value={value}>
       <NewOrderWatcher soundOn={soundOn} />
-      <Frame soundOn={soundOn} setSoundOn={setSoundOn}>
-        {children}
-      </Frame>
+      {pathname.startsWith("/painel/cozinha") ? (
+        // A tela de preparo ocupa a tela toda, sem o menu do painel.
+        children
+      ) : (
+        <Frame soundOn={soundOn} setSoundOn={setSoundOn}>
+          {children}
+        </Frame>
+      )}
     </PainelContext.Provider>
   );
 }
@@ -102,10 +122,11 @@ function MissingStore() {
     <div className="grid min-h-dvh place-items-center bg-ground px-4">
       <div className="max-w-[440px] rounded-card border border-line bg-surface p-6">
         <Wordmark />
-        <h1 className="mt-6 text-[20px] font-semibold">Não encontramos a sua loja</h1>
+        <h1 className="mt-6 text-[20px] font-semibold">Esta conta não está em nenhuma loja</h1>
         <p className="mt-2 text-sm leading-6 text-muted">
-          A conta entrou, mas a loja dela não está no banco. Isso acontece se a conta foi criada antes de o banco estar
-          pronto. Saia e crie a conta de novo com outro e-mail, ou fale com o suporte.
+          Se você trabalha num bar ou restaurante, peça ao dono um convite novo e abra o link dele: é por ele que a conta
+          entra na equipe. Se você é o dono, a loja não chegou a ser criada; crie a conta de novo com outro e-mail ou fale
+          com o suporte.
         </p>
         <button
           type="button"
@@ -173,16 +194,17 @@ function Frame({
   soundOn: boolean;
   setSoundOn: (v: boolean) => void;
 }) {
-  const { db, store, account, now } = usePainel();
+  const { db, store, account, now, role } = usePainel();
   const pathname = usePathname();
   const router = useRouter();
+  const items = NAV.filter((n) => canSee(role, n.href));
   // O menu guarda em que página foi aberto; ao navegar, deixa de valer e fecha sozinho.
   const [menuOpenedAt, setMenuOpenedAt] = useState<string | null>(null);
   const menuOpen = menuOpenedAt === pathname;
   const setMenuOpen = (open: boolean) => setMenuOpenedAt(open ? pathname : null);
 
   const waiting = db.orders.filter((o) => o.storeId === store.id && o.status === "novo").length;
-  const current = NAV.find((n) => (n.href === "/painel" ? pathname === "/painel" : pathname.startsWith(n.href)));
+  const current = items.find((n) => (n.href === "/painel" ? pathname === "/painel" : pathname.startsWith(n.href)));
 
   const logout = async () => {
     await signOut();
@@ -191,7 +213,7 @@ function Frame({
 
   const nav = (
     <nav aria-label="Painel" className="flex flex-col gap-0.5">
-      {NAV.map((item) => {
+      {items.map((item) => {
         const active = item === current;
         const Icon = item.icon;
         return (
@@ -238,7 +260,9 @@ function Frame({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-ink">{account.name}</span>
-          <span className="block truncate text-xs text-muted">{account.email}</span>
+          <span className="block truncate text-xs text-muted">
+            {role === "owner" ? account.email : ROLE_LABEL[role]}
+          </span>
         </span>
         <button
           type="button"
@@ -283,7 +307,7 @@ function Frame({
       </aside>
 
       <header className="no-print hidden items-center justify-between gap-4 pr-4 lg:flex">
-        <StoreStatusControl store={store} now={now} />
+        <StoreStatusControl store={store} now={now} readOnly={!canManageStore(role)} />
         {soundButton}
       </header>
 
@@ -322,7 +346,7 @@ function Frame({
           <div className="mt-3 rounded-card bg-surface p-3">
             <p className="text-xs text-muted">Loja</p>
             <p className="mb-3 text-sm font-medium">{store.name}</p>
-            <StoreStatusControl store={store} now={now} className="justify-between" />
+            <StoreStatusControl store={store} now={now} readOnly={!canManageStore(role)} className="justify-between" />
           </div>
           <div className="mt-5 flex-1">{nav}</div>
           <div className="mt-6">{footer}</div>

@@ -78,6 +78,26 @@ function migrateDefaultColors(db: Db) {
  * (Bar do Cais e cardápios de exemplo adicionados em outras lojas). Itens criados pelo dono
  * não são tocados, e uma foto removida depois não volta.
  */
+/** Setor de preparo nos itens de exemplo que já estavam salvos (bebidas prontas e do bar). */
+function migratePrepStations(db: Db) {
+  const KEY_DONE = "prep-stations-v1";
+  if (db.migrations?.includes(KEY_DONE)) return;
+  const samples = demoProducts();
+  const byId = new Map(samples.map((p) => [p.id, p.prepStation]));
+  const byText = new Map(samples.map((p) => [`${p.name}|${p.description}`, p.prepStation]));
+  for (const p of db.products ?? []) {
+    if (p.prepStation) continue;
+    const station = p.storeId === DEMO_STORE_ID ? byId.get(p.id) : byText.get(`${p.name}|${p.description}`);
+    if (station) p.prepStation = station;
+  }
+  db.migrations = [...(db.migrations ?? []), KEY_DONE];
+  try {
+    write(db);
+  } catch {
+    // sem espaço: tenta de novo na próxima visita
+  }
+}
+
 function migrateDemoPhotos(db: Db) {
   const KEY_DONE = "demo-photos-v1";
   if (db.migrations?.includes(KEY_DONE)) return;
@@ -107,7 +127,10 @@ function readLocal(): Db {
     db = null;
   }
   if (db) migrateDefaultColors(db);
-  if (db) migrateDemoPhotos(db);
+  if (db) {
+    migrateDemoPhotos(db);
+    migratePrepStations(db);
+  }
   if (!db || db.version !== 1) {
     db = buildDemoDb(new Date());
     try {

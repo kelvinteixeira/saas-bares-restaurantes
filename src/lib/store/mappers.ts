@@ -43,6 +43,7 @@ export interface ProductRow {
   available: boolean;
   position: number;
   option_groups: Product["optionGroups"];
+  prep_station?: Product["prepStation"];
 }
 
 export interface OrderRow {
@@ -134,6 +135,7 @@ export function rowToProduct(r: ProductRow): Product {
     available: r.available,
     position: r.position,
     optionGroups: r.option_groups ?? [],
+    prepStation: r.prep_station ?? "kitchen",
   };
 }
 
@@ -149,6 +151,7 @@ export function productToRow(p: Product): ProductRow {
     available: p.available,
     position: p.position,
     option_groups: p.optionGroups,
+    prep_station: p.prepStation ?? "kitchen",
   };
 }
 

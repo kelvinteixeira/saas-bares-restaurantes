@@ -246,6 +246,7 @@ export function demoProducts(): Product[] {
     }),
     product({
       id: "p-cerveja",
+      prepStation: "none",
       categoryId: "c-bebidas",
       name: "Cerveja long neck",
       description: "355 ml.",
@@ -267,6 +268,7 @@ export function demoProducts(): Product[] {
     }),
     product({
       id: "p-caipirinha",
+      prepStation: "bar",
       categoryId: "c-bebidas",
       name: "Caipirinha",
       description: "Limão, açúcar e gelo.",
@@ -287,6 +289,7 @@ export function demoProducts(): Product[] {
     }),
     product({
       id: "p-refri",
+      prepStation: "none",
       categoryId: "c-bebidas",
       name: "Refrigerante lata",
       description: "350 ml.",
@@ -294,6 +297,7 @@ export function demoProducts(): Product[] {
     }),
     product({
       id: "p-suco",
+      prepStation: "bar",
       categoryId: "c-bebidas",
       name: "Suco natural",
       description: "500 ml.",
@@ -312,7 +316,7 @@ export function demoProducts(): Product[] {
         },
       ],
     }),
-    product({ id: "p-agua", categoryId: "c-bebidas", name: "Água mineral", description: "500 ml.", price: 500 }),
+    product({ id: "p-agua", prepStation: "none", categoryId: "c-bebidas", name: "Água mineral", description: "500 ml.", price: 500 }),
     product({
       id: "p-pudim",
       categoryId: "c-sobremesas",

@@ -26,6 +26,7 @@ export const RESERVED_SLUGS = new Set([
   "privacidade",
   "creditos-das-fotos",
   "bar-do-cais",
+  "convite",
 ]);
 
 export class AuthError extends Error {}

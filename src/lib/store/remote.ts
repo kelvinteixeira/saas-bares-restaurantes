@@ -124,6 +124,12 @@ export function loadOwner(user: User): Promise<void> {
   return load;
 }
 
+/** Busca de novo, depois de qualquer carga em andamento (ex.: logo após entrar numa equipe). */
+export async function refreshOwner(user: User): Promise<void> {
+  await ownerLoads.get(user.id)?.catch(() => {});
+  return loadOwner(user);
+}
+
 async function fetchOwner(user: User) {
   {
     const sb = getSupabase();

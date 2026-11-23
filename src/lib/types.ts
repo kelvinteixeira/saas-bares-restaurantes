@@ -89,6 +89,9 @@ export interface OptionGroup {
   options: ProductOption[];
 }
 
+/** Onde o item é preparado: cozinha, bar, ou nenhum (sai pronto, como cerveja e refrigerante). */
+export type PrepStation = "kitchen" | "bar" | "none";
+
 export interface Product {
   id: string;
   storeId: string;
@@ -100,6 +103,8 @@ export interface Product {
   available: boolean;
   position: number;
   optionGroups: OptionGroup[];
+  /** Sem valor = cozinha. */
+  prepStation?: PrepStation;
 }
 
 export type OrderMode = "delivery" | "pickup" | "table";
@@ -168,6 +173,25 @@ export interface Account {
   /** Loja e função vindas da equipe (store_members). Contas locais são donas da própria loja. */
   storeId?: string;
   role?: StoreRole;
+}
+
+/** Pessoa da equipe da loja (store_members). */
+export interface TeamMember {
+  userId: string;
+  name: string;
+  email: string;
+  role: StoreRole;
+  createdAt: string;
+}
+
+/** Convite pendente para entrar na equipe. */
+export interface TeamInvite {
+  id: string;
+  email: string;
+  role: Exclude<StoreRole, "owner">;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface Db {

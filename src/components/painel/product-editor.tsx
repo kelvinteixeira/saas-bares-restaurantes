@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { ImagePlus, Plus, Trash2 } from "lucide-react";
-import type { Category, OptionGroup, Product } from "@/lib/types";
+import type { Category, OptionGroup, PrepStation, Product } from "@/lib/types";
 import { groupRule } from "@/lib/domain/pricing";
 import { moneyInput, parseMoney } from "@/lib/format";
 import { newId } from "@/lib/ids";
@@ -35,6 +35,7 @@ interface Draft {
   categoryId: string;
   image?: string;
   available: boolean;
+  prepStation: PrepStation;
   groups: DraftGroup[];
 }
 
@@ -46,6 +47,7 @@ function toDraft(p: Product): Draft {
     categoryId: p.categoryId,
     image: p.image,
     available: p.available,
+    prepStation: p.prepStation ?? "kitchen",
     groups: p.optionGroups.map((g) => ({
       id: g.id,
       name: g.name,
@@ -95,6 +97,7 @@ function fromDraft(d: Draft, base: Product): { product?: Product; errors: Errors
       categoryId: d.categoryId,
       image: d.image,
       available: d.available,
+      prepStation: d.prepStation,
       optionGroups: groups,
     },
   };
@@ -265,6 +268,15 @@ export function ProductEditor({
           )}
         </Field>
       </div>
+      <Field label="Onde é preparado" hint="Define em que setor o item aparece na tela de preparo.">
+        {(p) => (
+          <Select {...p} value={draft.prepStation} onChange={(e) => update((d) => ({ ...d, prepStation: e.target.value as PrepStation }))}>
+            <option value="kitchen">Cozinha</option>
+            <option value="bar">Bar</option>
+            <option value="none">Sai pronto (não vai para a tela de preparo)</option>
+          </Select>
+        )}
+      </Field>
       <div className="flex items-center justify-between rounded-card bg-raised px-3 py-2.5">
         <span>
           <span className="block text-sm font-medium">Disponível para pedir</span>

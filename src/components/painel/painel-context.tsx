@@ -1,13 +1,18 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { Account, Db, Store } from "@/lib/types";
+import type { Account, Db, Store, StoreRole } from "@/lib/types";
 
 export interface PainelValue {
   db: Db;
   account: Account;
   store: Store;
   now: Date;
+  /** Função de quem está logado nesta loja. */
+  role: StoreRole;
+  /** Som de pedido novo (a preferência fica neste navegador). */
+  soundOn: boolean;
+  setSoundOn: (on: boolean) => void;
 }
 
 export const PainelContext = createContext<PainelValue | null>(null);
