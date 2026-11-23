@@ -17,7 +17,7 @@ import { Modal } from "@/components/ui/modal";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
 import { attempt, useToast } from "@/components/ui/toast";
 
-const PAYMENT_LABEL = { pix: "Pix na entrega", card: "Cartão na entrega", cash: "Dinheiro" } as const;
+const PAYMENT_LABEL = { pix: "Pix na entrega", card: "Cartão na entrega", cash: "Dinheiro", tab: "Na conta da mesa" } as const;
 
 export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; onBack?: () => void }) {
   const toast = useToast();

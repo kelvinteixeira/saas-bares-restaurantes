@@ -12,7 +12,7 @@ import { customerStatusLabel, isOpenOrder, statusFlow, statusLabel } from "@/lib
 import { formatClock, formatMoney, formatOrderNumber, onlyDigits } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
-const PAYMENT_LABEL = { pix: "Pix", card: "Cartão", cash: "Dinheiro" } as const;
+const PAYMENT_LABEL = { pix: "Pix", card: "Cartão", cash: "Dinheiro", tab: "Na conta da mesa" } as const;
 
 /** Acompanhamento ao vivo: muda sozinho quando a loja avança o pedido no painel. */
 export function OrderTracking({ slug, id }: { slug: string; id: string }) {

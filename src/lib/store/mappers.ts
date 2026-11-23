@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { Category, Order, Product, Store, WeeklyHours } from "@/lib/types";
+import type { Category, Order, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -20,6 +20,8 @@ export interface StoreRow {
   pickup: Partial<Store["pickup"]>;
   table_service: Partial<Store["table"]>;
   payment: Partial<Store["payment"]>;
+  /** Só existe depois do SQL 003. */
+  service_fee?: Store["serviceFee"];
   next_order_number: number;
   created_at: string;
 }
@@ -64,6 +66,10 @@ export interface OrderRow {
   total: number;
   payment: Order["payment"];
   notes: string | null;
+  /** Colunas do SQL 003. */
+  tab_id?: string | null;
+  source?: Order["source"];
+  created_by?: string | null;
 }
 
 function toHours(raw: StoreRow["hours"]): WeeklyHours {
@@ -89,6 +95,7 @@ export function rowToStore(r: StoreRow): Store {
     pickup: { enabled: true, etaMin: 20, etaMax: 30, ...r.pickup },
     table: { enabled: false, count: 10, ...r.table_service },
     payment: { pix: true, card: true, cash: true, ...r.payment },
+    serviceFee: r.service_fee ?? undefined,
     nextOrderNumber: r.next_order_number,
     createdAt: r.created_at,
   };
@@ -112,6 +119,8 @@ export function storeToUpdate(s: Store) {
     pickup: s.pickup,
     table_service: s.table,
     payment: s.payment,
+    // Antes do SQL 003 a coluna não existe: só manda quando a loja já tem o valor.
+    ...(s.serviceFee ? { service_fee: s.serviceFee } : {}),
   };
 }
 
@@ -174,6 +183,9 @@ export function rowToOrder(r: OrderRow): Order {
     total: r.total,
     payment: r.payment,
     notes: r.notes ?? undefined,
+    tabId: r.tab_id ?? undefined,
+    source: r.source ?? undefined,
+    createdBy: r.created_by ?? undefined,
   };
 }
 
@@ -196,5 +208,38 @@ export function orderToRow(o: Order): OrderRow {
     total: o.total,
     payment: o.payment,
     notes: o.notes ?? null,
+    ...(o.tabId ? { tab_id: o.tabId } : {}),
+    ...(o.source ? { source: o.source } : {}),
+    ...(o.createdBy ? { created_by: o.createdBy } : {}),
+  };
+}
+
+export interface TabRow {
+  id: string;
+  store_id: string;
+  table_number: number;
+  status: Tab["status"];
+  opened_by: string | null;
+  opened_at: string;
+  closed_by: string | null;
+  closed_at: string | null;
+  service_fee_rate: number;
+  service_fee_removed: boolean;
+  notes: string | null;
+}
+
+export function rowToTab(r: TabRow): Tab {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    tableNumber: r.table_number,
+    status: r.status,
+    openedBy: r.opened_by ?? undefined,
+    openedAt: r.opened_at,
+    closedBy: r.closed_by ?? undefined,
+    closedAt: r.closed_at ?? undefined,
+    serviceFeeRate: r.service_fee_rate,
+    serviceFeeRemoved: r.service_fee_removed,
+    notes: r.notes ?? undefined,
   };
 }

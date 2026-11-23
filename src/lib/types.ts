@@ -62,6 +62,8 @@ export interface Store {
     card: boolean;
     cash: boolean;
   };
+  /** Taxa de serviço das mesas. Sem valor = 10% ligada (padrão do banco). */
+  serviceFee?: { enabled: boolean; rate: number };
   nextOrderNumber: number;
   createdAt: string; // ISO
 }
@@ -119,6 +121,12 @@ export type OrderStatus =
 
 export type PaymentMethod = "pix" | "card" | "cash";
 
+/** Como o pedido será pago: "tab" = vai para a conta da mesa (lançado pelo garçom). */
+export type OrderPaymentMethod = PaymentMethod | "tab";
+
+/** De onde veio o pedido: cliente (cardápio/QR), garçom ou PDV. */
+export type OrderSource = "cliente" | "garcom" | "pdv";
+
 export interface OrderItemOption {
   groupName: string;
   optionName: string;
@@ -157,7 +165,30 @@ export interface Order {
   subtotal: number;
   deliveryFee: number;
   total: number;
-  payment: { method: PaymentMethod; changeFor?: number };
+  payment: { method: OrderPaymentMethod; changeFor?: number };
+  notes?: string;
+  /** Comanda da mesa a que o pedido pertence. */
+  tabId?: string;
+  source?: OrderSource;
+  /** Quem da equipe lançou (garçom, PDV). */
+  createdBy?: string;
+}
+
+export type TabStatus = "open" | "bill_requested" | "closed";
+
+/** Comanda de mesa: junta os pedidos do garçom, do QR code e do PDV até fechar a conta. */
+export interface Tab {
+  id: string;
+  storeId: string;
+  tableNumber: number;
+  status: TabStatus;
+  openedBy?: string;
+  openedAt: string;
+  closedBy?: string;
+  closedAt?: string;
+  /** Percentual da taxa de serviço quando a comanda abriu. */
+  serviceFeeRate: number;
+  serviceFeeRemoved: boolean;
   notes?: string;
 }
 
@@ -209,4 +240,6 @@ export interface Db {
   categories: Category[];
   products: Product[];
   orders: Order[];
+  /** Comandas de mesa (documentos antigos da demonstração não têm). */
+  tabs?: Tab[];
 }

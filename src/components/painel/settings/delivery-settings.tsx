@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Plus, Trash2 } from "lucide-react";
 import type { Store } from "@/lib/types";
+import { serviceFeeOf } from "@/lib/domain/tabs";
 import { usePainel } from "@/components/painel/painel-context";
 import { SaveBar, SettingsSection } from "@/components/painel/settings/section";
 import { Field, Input, Switch, inputClass } from "@/components/ui/field";
@@ -31,6 +32,8 @@ interface Form {
   pickupMax: string;
   tableEnabled: boolean;
   tableCount: string;
+  feeEnabled: boolean;
+  feeRate: string;
 }
 
 function pick(s: Store): Form {
@@ -45,6 +48,8 @@ function pick(s: Store): Form {
     pickupMax: String(s.pickup.etaMax),
     tableEnabled: s.table.enabled,
     tableCount: String(s.table.count),
+    feeEnabled: serviceFeeOf(s).enabled,
+    feeRate: String(serviceFeeOf(s).rate),
   };
 }
 
@@ -71,7 +76,11 @@ export function DeliverySettings() {
     const pMax = Number(form.pickupMax);
     if (!pMin || !pMax || pMin > pMax) next.pickup = "O tempo mínimo precisa ser menor ou igual ao máximo.";
     const tableCount = Number(form.tableCount);
-    if (form.tableEnabled && (!tableCount || tableCount > 200)) next.table = "Informe de 1 a 200 mesas.";
+    if (!tableCount || tableCount > 200) next.table = "Informe de 1 a 200 mesas.";
+    const feeRate = Number(form.feeRate);
+    if (form.feeEnabled && (!feeRate || feeRate > 30)) next.fee = "Informe de 1% a 30%.";
+    const original = pick(store);
+    const feeChanged = form.feeEnabled !== original.feeEnabled || form.feeRate !== original.feeRate;
     const regions = form.regions.map((r) => {
       const fee = r.feeText.trim() ? parseMoney(r.feeText) : 0;
       if (!r.name.trim() || fee === null) next[`region:${r.id}`] = "Confira nome e taxa.";
@@ -88,6 +97,8 @@ export function DeliverySettings() {
           s.delivery = { enabled: form.deliveryEnabled, minOrder: minOrder ?? 0, etaMin, etaMax, regions };
           s.pickup = { enabled: form.pickupEnabled, etaMin: pMin, etaMax: pMax };
           s.table = { enabled: form.tableEnabled, count: tableCount || s.table.count };
+          // Antes do SQL 003 a loja do banco não tem a taxa: só grava quando o dono mexe nela.
+          if (s.serviceFee || feeChanged) s.serviceFee = { enabled: form.feeEnabled, rate: form.feeEnabled ? feeRate : serviceFeeOf(s).rate };
         }),
       "Formas de atendimento salvas",
     );
@@ -230,23 +241,44 @@ export function DeliverySettings() {
       </SettingsSection>
 
       <SettingsSection
-        title="Pedido na mesa"
+        title="Mesas"
         description={
           <>
-            Cada mesa tem um QR code. O cliente lê, pede pelo celular e o pedido chega aqui com o número da mesa.{" "}
-            <Link href="/painel/mesas" className="font-medium text-accent hover:underline">
+            O garçom abre a mesa e lança pelo celular; o cliente também pode pedir pelo QR code da mesa. Tudo cai na mesma
+            comanda.{" "}
+            <Link href="/painel/mesas?aba=qr" className="font-medium text-accent hover:underline">
               Imprimir os QR codes
             </Link>
           </>
         }
       >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Aceitar pedidos na mesa</span>
-          <Switch checked={form.tableEnabled} onChange={(v) => set("tableEnabled", v)} label="Aceitar pedidos na mesa" />
-        </div>
-        <Field label="Quantidade de mesas" error={errors.table} className="mt-4 max-w-[200px]">
+        <Field label="Quantidade de mesas" error={errors.table} className="max-w-[200px]">
           {(p) => <Input {...p} inputMode="numeric" value={form.tableCount} onChange={(e) => set("tableCount", digits(e.target.value))} />}
         </Field>
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <span>
+            <span className="block text-sm font-medium">Cliente pede pelo QR code da mesa</span>
+            <span className="block text-xs text-muted">Desligado, só o garçom lança na mesa.</span>
+          </span>
+          <Switch checked={form.tableEnabled} onChange={(v) => set("tableEnabled", v)} label="Cliente pede pelo QR code da mesa" />
+        </div>
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <span>
+            <span className="block text-sm font-medium">Taxa de serviço</span>
+            <span className="block text-xs text-muted">Entra na conta da mesa. O caixa pode tirar na hora, se o cliente pedir.</span>
+          </span>
+          <Switch checked={form.feeEnabled} onChange={(v) => set("feeEnabled", v)} label="Cobrar taxa de serviço" />
+        </div>
+        {form.feeEnabled && (
+          <Field label="Percentual da taxa" error={errors.fee} className="mt-4 max-w-[200px]">
+            {(p) => (
+              <div className="flex items-center gap-2">
+                <Input {...p} inputMode="numeric" value={form.feeRate} onChange={(e) => set("feeRate", digits(e.target.value).slice(0, 2))} />
+                <span className="text-sm text-muted">%</span>
+              </div>
+            )}
+          </Field>
+        )}
         {errors.form && <p className="mt-3 text-sm text-negative">{errors.form}</p>}
         <SaveBar dirty={dirty} onSave={save} onReset={reset} />
       </SettingsSection>

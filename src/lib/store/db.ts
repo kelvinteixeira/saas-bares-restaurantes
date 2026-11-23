@@ -10,8 +10,8 @@
 // A sessão remota tem prioridade sobre a local.
 
 import { useSyncExternalStore } from "react";
-import type { Account, Category, Db, Order, Product, Store } from "@/lib/types";
-import { buildDemoDb, demoProducts, DEMO_STORE_ID } from "@/lib/seed";
+import type { Account, Category, Db, Order, Product, Store, Tab } from "@/lib/types";
+import { buildDemoDb, demoProducts, DEMO_STORE_ID, tabsForOpenTableOrders } from "@/lib/seed";
 import { supabaseConfigured } from "@/lib/supabase/client";
 
 export interface RemoteState {
@@ -22,6 +22,7 @@ export interface RemoteState {
   categories: Category[];
   products: Product[];
   orders: Order[];
+  tabs: Tab[];
   /** Lojas públicas buscadas por endereço: "loading" ou "done" (achada ou não). */
   slugState: Record<string, "loading" | "done">;
   /** Pedidos buscados para acompanhamento: "loading" ou "done". */
@@ -29,7 +30,7 @@ export interface RemoteState {
 }
 
 export function emptyRemote(authResolved: boolean): RemoteState {
-  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], slugState: {}, orderState: {} };
+  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], slugState: {}, orderState: {} };
 }
 
 let remote: RemoteState = emptyRemote(!supabaseConfigured());
@@ -98,6 +99,21 @@ function migratePrepStations(db: Db) {
   }
 }
 
+/** Comandas de mesa (SQL 003): documentos antigos ganham as comandas das mesas em andamento. */
+function migrateTabs(db: Db) {
+  const KEY_DONE = "tabs-v1";
+  if (db.migrations?.includes(KEY_DONE)) return;
+  const tabs = db.tabs ?? [];
+  for (const store of db.stores ?? []) tabsForOpenTableOrders(store, db.orders ?? [], tabs);
+  db.tabs = tabs;
+  db.migrations = [...(db.migrations ?? []), KEY_DONE];
+  try {
+    write(db);
+  } catch {
+    // sem espaço: tenta de novo na próxima visita
+  }
+}
+
 function migrateDemoPhotos(db: Db) {
   const KEY_DONE = "demo-photos-v1";
   if (db.migrations?.includes(KEY_DONE)) return;
@@ -130,6 +146,7 @@ function readLocal(): Db {
   if (db) {
     migrateDemoPhotos(db);
     migratePrepStations(db);
+    migrateTabs(db);
   }
   if (!db || db.version !== 1) {
     db = buildDemoDb(new Date());
@@ -156,6 +173,7 @@ function read(): Db {
     categories: [...local.categories, ...remote.categories],
     products: [...local.products, ...remote.products],
     orders: [...local.orders, ...remote.orders],
+    tabs: [...(local.tabs ?? []), ...remote.tabs],
   };
   return merged;
 }
@@ -232,6 +250,7 @@ export function resetDemoData() {
     categories: [...fresh.categories, ...current.categories.filter((c) => ownIds.has(c.storeId))],
     products: [...fresh.products, ...current.products.filter((p) => ownIds.has(p.storeId))],
     orders: [...fresh.orders, ...current.orders.filter((o) => ownIds.has(o.storeId))],
+    tabs: [...(fresh.tabs ?? []), ...(current.tabs ?? []).filter((t) => ownIds.has(t.storeId))],
   };
   write(next);
   cache = next;

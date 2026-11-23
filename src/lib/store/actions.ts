@@ -11,6 +11,7 @@ import type {
   Db,
   ManualStatus,
   Order,
+  OrderItem,
   OrderMode,
   PaymentMethod,
   Product,
@@ -23,6 +24,7 @@ import { deliveryFee, unitPrice, validateSelections, type CartLine } from "@/lib
 import { onlyDigits } from "@/lib/format";
 import { buildOrderItem, demoCategories, demoProducts, demoStore, randomOrder } from "@/lib/seed";
 import { isStoreOpen } from "@/lib/domain/hours";
+import { attachToTab } from "@/lib/domain/tabs";
 import { getSupabase } from "@/lib/supabase/client";
 import {
   friendly,
@@ -397,24 +399,15 @@ export async function placeOrder(input: CheckoutInput): Promise<Order> {
   return mutate((db) => placeLocalOrder(db, input));
 }
 
-function placeLocalOrder(db: Db, input: CheckoutInput): Order {
-  const store = findStore(db, input.storeId);
-  const now = new Date();
-  if (!isStoreOpen(store, now)) throw new CheckoutError("A loja fechou enquanto você montava o pedido.");
-  if (!input.lines.length) throw new CheckoutError("A sacola está vazia.");
-
-  // O servidor nunca confia na tela: confere cliente, pagamento, itens e opções de novo.
-  const customerName = input.customer.name.trim();
-  const customerPhone = onlyDigits(input.customer.phone);
-  if (!customerName) throw new CheckoutError("Informe seu nome.");
-  if (input.mode !== "table" && (customerPhone.length < 10 || customerPhone.length > 11)) {
-    throw new CheckoutError("Informe um WhatsApp com DDD.");
-  }
-  if (!store.payment[input.payment.method]) throw new CheckoutError("Esta forma de pagamento não está disponível.");
-
+/**
+ * Confere os itens contra o cardápio e calcula os preços (o mesmo que build_order_items no banco).
+ * Usado pelo pedido do cliente e pelo lançamento do garçom na loja local.
+ */
+export function priceLocalLines(db: Db, store: Store, lines: CartLine[]): { items: OrderItem[]; subtotal: number } {
+  if (!lines.length) throw new CheckoutError("A sacola está vazia.");
   const visibleCategories = new Set(db.categories.filter((c) => c.storeId === store.id && c.visible).map((c) => c.id));
   const changed = "Um item da sacola mudou no cardápio. Remova e adicione de novo.";
-  const items = input.lines.map((line) => {
+  const items = lines.map((line) => {
     const product = db.products.find((p) => p.id === line.productId && p.storeId === store.id);
     if (!product || !product.available || !visibleCategories.has(product.categoryId)) {
       throw new CheckoutError("Um item da sacola não está mais disponível.");
@@ -434,10 +427,29 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     if (Object.keys(validateSelections(product, line.selections)).length) throw new CheckoutError(changed);
     const item = buildOrderItem(product, line.selections, line.quantity);
     item.unitPrice = unitPrice(product, line.selections);
-    if (line.notes) item.notes = line.notes;
+    const notes = line.notes?.trim();
+    if (notes) item.notes = notes.slice(0, 140);
     return item;
   });
-  const subtotal = items.reduce((s, it) => s + it.unitPrice * it.quantity, 0);
+  return { items, subtotal: items.reduce((s, it) => s + it.unitPrice * it.quantity, 0) };
+}
+
+function placeLocalOrder(db: Db, input: CheckoutInput): Order {
+  const store = findStore(db, input.storeId);
+  const now = new Date();
+  if (!isStoreOpen(store, now)) throw new CheckoutError("A loja fechou enquanto você montava o pedido.");
+  if (!input.lines.length) throw new CheckoutError("A sacola está vazia.");
+
+  // O servidor nunca confia na tela: confere cliente, pagamento, itens e opções de novo.
+  const customerName = input.customer.name.trim();
+  const customerPhone = onlyDigits(input.customer.phone);
+  if (!customerName) throw new CheckoutError("Informe seu nome.");
+  if (input.mode !== "table" && (customerPhone.length < 10 || customerPhone.length > 11)) {
+    throw new CheckoutError("Informe um WhatsApp com DDD.");
+  }
+  if (!store.payment[input.payment.method]) throw new CheckoutError("Esta forma de pagamento não está disponível.");
+
+  const { items, subtotal } = priceLocalLines(db, store, input.lines);
 
   let fee = 0;
   let delivery: Order["delivery"];
@@ -487,7 +499,10 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     total,
     payment: input.payment.method === "cash" ? input.payment : { method: input.payment.method },
     notes: input.notes?.trim() || undefined,
+    source: "cliente",
   };
+  db.tabs ??= [];
+  attachToTab(db.tabs, order, store, newId);
   db.orders.push(order);
   return order;
 }
@@ -505,6 +520,8 @@ export async function simulateOrder(storeId: string): Promise<Order | null> {
       const s = findStore(local, storeId);
       const order = randomOrder(seededRandom(now.getTime() % 2147483647), s, products, now, s.nextOrderNumber++, "novo");
       order.id = newId();
+      local.tabs ??= [];
+      attachToTab(local.tabs, order, s, newId);
       local.orders.push(order);
       return order;
     });

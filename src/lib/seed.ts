@@ -12,11 +12,13 @@ import type {
   PaymentMethod,
   Product,
   Store,
+  Tab,
   WeeklyHours,
 } from "@/lib/types";
-import { seededRandom } from "@/lib/ids";
+import { newId, seededRandom } from "@/lib/ids";
 import { unitPrice, type Selections } from "@/lib/domain/pricing";
-import { statusFlow } from "@/lib/domain/orders";
+import { isOpenOrder, statusFlow } from "@/lib/domain/orders";
+import { attachToTab } from "@/lib/domain/tabs";
 import { DEMO_PHOTOS } from "@/lib/demo-photos";
 
 export const DEMO_ACCOUNT_ID = "demo-account";
@@ -500,6 +502,14 @@ export function demoAccount(now: Date): Account {
   };
 }
 
+/** Comandas das mesas que ainda têm pedido em andamento (as servidas ficam sem comanda). */
+export function tabsForOpenTableOrders(store: Store, orders: Order[], tabs: Tab[] = []): Tab[] {
+  for (const o of [...orders].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    if (o.storeId === store.id && o.mode === "table" && !o.tabId && isOpenOrder(o)) attachToTab(tabs, o, store, newId);
+  }
+  return tabs;
+}
+
 export function buildDemoDb(now: Date): Db {
   const store = demoStore(now);
   const products = demoProducts();
@@ -513,5 +523,6 @@ export function buildDemoDb(now: Date): Db {
     categories: demoCategories(),
     products,
     orders,
+    tabs: tabsForOpenTableOrders(store, orders),
   };
 }

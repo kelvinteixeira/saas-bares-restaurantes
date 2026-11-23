@@ -35,7 +35,7 @@ const NAV = [
   { href: "/painel/pedidos", label: "Pedidos", icon: ReceiptText },
   { href: "/painel/cozinha", label: "Tela de preparo", icon: ChefHat },
   { href: "/painel/cardapio", label: "Cardápio", icon: UtensilsCrossed },
-  { href: "/painel/mesas", label: "Mesas e QR code", icon: QrCode },
+  { href: "/painel/mesas", label: "Mesas", icon: QrCode },
   { href: "/painel/equipe", label: "Equipe", icon: Users },
   { href: "/painel/configuracoes", label: "Configurações", icon: Settings },
 ] as const;

@@ -7,7 +7,7 @@
 // - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
 
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import type { Account, Category, Order, Product, Store, StoreRole } from "@/lib/types";
+import type { Account, Category, Order, Product, Store, StoreRole, Tab } from "@/lib/types";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
 import {
@@ -15,10 +15,12 @@ import {
   rowToOrder,
   rowToProduct,
   rowToStore,
+  rowToTab,
   type CategoryRow,
   type OrderRow,
   type ProductRow,
   type StoreRow,
+  type TabRow,
 } from "@/lib/store/mappers";
 
 let booted = false;
@@ -51,6 +53,12 @@ export function remoteUpsertProduct(product: Product) {
 }
 export function remoteUpsertOrder(order: Order) {
   setRemote((r) => ({ ...r, orders: upsertById(r.orders, order) }));
+}
+export function remoteUpsertTab(tab: Tab) {
+  setRemote((r) => ({ ...r, tabs: upsertById(r.tabs, tab) }));
+}
+export function remoteUpsertOrders(orders: Order[]) {
+  setRemote((r) => ({ ...r, orders: orders.reduce((list, o) => upsertById(list, o), r.orders) }));
 }
 
 export function isRemoteStore(storeId: string): boolean {
@@ -166,6 +174,9 @@ async function fetchOwner(user: User) {
     for (const res of [cats, prods, recent, open]) if (res.error) throw friendly(res.error, "Não foi possível carregar a sua loja.");
     const orders = new Map<string, Order>();
     for (const row of [...(recent.data ?? []), ...(open.data ?? [])] as OrderRow[]) orders.set(row.id, rowToOrder(row));
+    // Comandas abertas e as fechadas nos últimos dias. Antes do SQL 003 a tabela não existe: segue sem.
+    const tabsRes = await sb.from("tabs").select("*").eq("store_id", store.id).or(`status.neq.closed,opened_at.gte.${since}`);
+    const tabs = tabsRes.error ? [] : ((tabsRes.data ?? []) as TabRow[]).map(rowToTab);
 
     setRemote((r) => ({
       ...r,
@@ -174,17 +185,18 @@ async function fetchOwner(user: User) {
       categories: replaceForStore(r.categories, store.id, ((cats.data ?? []) as CategoryRow[]).map(rowToCategory)),
       products: replaceForStore(r.products, store.id, ((prods.data ?? []) as ProductRow[]).map(rowToProduct)),
       orders: replaceForStore(r.orders, store.id, [...orders.values()]),
+      tabs: replaceForStore(r.tabs, store.id, tabs),
       slugState: { ...r.slugState, [store.slug]: "done" },
     }));
-    subscribeOrders(store.id);
+    subscribeOrders(store.id, !tabsRes.error);
   }
 }
 
 /** Pedidos novos e mudanças de status chegam na hora (Realtime respeita as regras de acesso). */
-function subscribeOrders(storeId: string) {
+function subscribeOrders(storeId: string, withTabs: boolean) {
   const sb = getSupabase();
   if (ordersChannel) void ordersChannel.unsubscribe();
-  ordersChannel = sb
+  const channel = sb
     .channel(`pedidos-${storeId}`)
     .on(
       "postgres_changes",
@@ -197,8 +209,19 @@ function subscribeOrders(storeId: string) {
         }
         remoteUpsertOrder(rowToOrder(payload.new as OrderRow));
       },
-    )
-    .subscribe();
+    );
+  // Só escuta as comandas se a tabela existe (SQL 003); senão o canal inteiro falharia.
+  if (withTabs) {
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "tabs", filter: `store_id=eq.${storeId}` },
+      (payload) => {
+        if (payload.eventType === "DELETE") return;
+        remoteUpsertTab(rowToTab(payload.new as TabRow));
+      },
+    );
+  }
+  ordersChannel = channel.subscribe();
 }
 
 // ---------- público ----------
