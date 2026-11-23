@@ -6,11 +6,12 @@ import { usePainel } from "@/components/painel/painel-context";
 import { SettingsSection } from "@/components/painel/settings/section";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { signOut } from "@/lib/store/auth";
 import { resetDemoData } from "@/lib/store/db";
 import { DEMO_STORE_ID } from "@/lib/seed";
 import { fillSampleMenu } from "@/lib/store/actions";
+import { supabaseConfigured } from "@/lib/supabase/client";
 
 export function AccountSettings() {
   const { account, store } = usePainel();
@@ -29,13 +30,16 @@ export function AccountSettings() {
           <dd>{account.email}</dd>
         </dl>
         <p className="mt-4 text-sm text-muted">
-          Nesta versão de testes a conta fica salva só neste navegador. Login com senha de verdade, recuperação por e-mail
-          e mais de um usuário por loja entram com o banco de dados.
+          {isDemo
+            ? "A demonstração fica salva só neste navegador. Para usar com clientes, crie a sua conta."
+            : supabaseConfigured()
+              ? "Sua conta e sua loja ficam salvas no servidor: dá para entrar de qualquer aparelho."
+              : "Nesta versão de testes a conta fica salva só neste navegador."}
         </p>
         <div className="mt-5 flex justify-end">
           <Button
-            onClick={() => {
-              signOut();
+            onClick={async () => {
+              await signOut();
               router.replace("/entrar");
             }}
           >
@@ -55,8 +59,9 @@ export function AccountSettings() {
           </p>
           <div className="mt-5 flex justify-end">
             <Button
-              onClick={() => {
-                toast(fillSampleMenu(store.id) ? "Cardápio de exemplo adicionado" : "O cardápio de exemplo já está na loja.");
+              onClick={async () => {
+                const added = await attempt(toast, () => fillSampleMenu(store.id));
+                if (added !== undefined) toast(added ? "Cardápio de exemplo adicionado" : "O cardápio de exemplo já está na loja.");
               }}
             >
               Adicionar cardápio de exemplo

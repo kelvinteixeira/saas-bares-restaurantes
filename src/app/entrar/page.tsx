@@ -70,8 +70,8 @@ export default function EntrarPage() {
         <p className="mt-1 text-sm text-muted">Abra o painel do Bar do Cais, um bar de exemplo com pedidos de hoje.</p>
         <Button
           className="mt-3"
-          onClick={() => {
-            enterDemo();
+          onClick={async () => {
+            await enterDemo();
             router.push("/painel");
           }}
         >

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
+import { RemoteBoot } from "@/components/remote-boot";
 
 const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -34,7 +35,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={`${plexSans.variable} ${plexMono.variable}`}>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <RemoteBoot />
+        {children}
+      </body>
     </html>
   );
 }

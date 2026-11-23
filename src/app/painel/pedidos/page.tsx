@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/painel/page-header";
 import { OrderDetail } from "@/components/painel/order-detail";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { advanceLabel, isLate, isOpenOrder, modeLabel } from "@/lib/domain/orders";
 import { formatClock, formatDuration, formatMoney, formatOrderNumber, minutesBetween } from "@/lib/format";
 import { advanceOrder, simulateOrder } from "@/lib/store/actions";
@@ -87,9 +87,9 @@ function Pedidos() {
           subtitle={subtitle}
           actions={
             <Button
-              onClick={() => {
-                const o = simulateOrder(store.id);
-                if (!o) toast("Cadastre itens disponíveis no cardápio para simular um pedido.", "negative");
+              onClick={async () => {
+                const o = await attempt(toast, () => simulateOrder(store.id));
+                if (o === null) toast("Cadastre itens disponíveis no cardápio para simular um pedido.", "negative");
               }}
               title="Cria um pedido de teste com itens do seu cardápio"
             >
@@ -142,8 +142,11 @@ function Pedidos() {
                   onSelect={() => setParams({ pedido: o.id })}
                   onAdvance={() => {
                     const label = advanceLabel(o);
-                    advanceOrder(o.id);
-                    if (label) toast(`${formatOrderNumber(o.number)}: ${label.toLowerCase()}`);
+                    void attempt(
+                      toast,
+                      () => advanceOrder(o.id),
+                      label ? `${formatOrderNumber(o.number)}: ${label.toLowerCase()}` : undefined,
+                    );
                   }}
                 />
               ))}

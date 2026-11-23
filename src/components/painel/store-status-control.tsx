@@ -5,9 +5,11 @@ import type { ManualStatus, Store } from "@/lib/types";
 import { storeStatus } from "@/lib/domain/hours";
 import { setManualStatus } from "@/lib/store/actions";
 import { cn } from "@/lib/cn";
+import { attempt, useToast } from "@/components/ui/toast";
 
 export function StoreStatusControl({ store, now, className }: { store: Store; now: Date; className?: string }) {
   const id = useId();
+  const toast = useToast();
   const status = storeStatus(store, now);
   return (
     <div className={cn("flex items-center gap-3", className)}>
@@ -25,7 +27,7 @@ export function StoreStatusControl({ store, now, className }: { store: Store; no
       <select
         id={id}
         value={store.manualStatus}
-        onChange={(e) => setManualStatus(store.id, e.target.value as ManualStatus)}
+        onChange={(e) => void attempt(toast, () => setManualStatus(store.id, e.target.value as ManualStatus))}
         className="h-8 rounded-control border border-control bg-surface px-2 pr-7 text-[13px] text-ink hover:bg-raised"
       >
         <option value="auto">Seguir horários</option>

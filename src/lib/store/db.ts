@@ -1,13 +1,39 @@
 "use client";
 
-// Banco simulado da fase 1: um único documento JSON no localStorage do navegador.
-// Abas diferentes do mesmo navegador recebem as mudanças pelo evento "storage",
-// então um pedido feito no cardápio aparece no painel aberto em outra aba.
-// Na fase 2 este módulo é trocado por chamadas ao Supabase, mantendo as ações de actions.ts.
+// Duas camadas de dados, vistas pelas telas como um documento só (useDb):
+//
+// - Local: um documento JSON no localStorage com a demonstração (Bar do Cais). Abas do mesmo
+//   navegador recebem as mudanças pelo evento "storage". Sem Supabase configurado, tudo vive aqui.
+// - Remota: em memória, com o que veio do Supabase (conta, loja do dono, lojas públicas abertas,
+//   cardápio e pedidos). Preenchida e mantida por remote.ts; nunca é salva no localStorage.
+//
+// A sessão remota tem prioridade sobre a local.
 
 import { useSyncExternalStore } from "react";
-import type { Db } from "@/lib/types";
-import { buildDemoDb } from "@/lib/seed";
+import type { Account, Category, Db, Order, Product, Store } from "@/lib/types";
+import { buildDemoDb, demoProducts, DEMO_STORE_ID } from "@/lib/seed";
+import { supabaseConfigured } from "@/lib/supabase/client";
+
+export interface RemoteState {
+  /** false até conferir se há sessão no Supabase (sempre true sem Supabase). */
+  authResolved: boolean;
+  account: Account | null;
+  stores: Store[];
+  categories: Category[];
+  products: Product[];
+  orders: Order[];
+  /** Lojas públicas buscadas por endereço: "loading" ou "done" (achada ou não). */
+  slugState: Record<string, "loading" | "done">;
+  /** Pedidos buscados para acompanhamento: "loading" ou "done". */
+  orderState: Record<string, "loading" | "done">;
+}
+
+export function emptyRemote(authResolved: boolean): RemoteState {
+  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], slugState: {}, orderState: {} };
+}
+
+let remote: RemoteState = emptyRemote(!supabaseConfigured());
+let merged: Db | null = null;
 
 const KEY = "comanda:db:v1";
 let cache: Db | null = null;
@@ -47,7 +73,31 @@ function migrateDefaultColors(db: Db) {
   }
 }
 
-function read(): Db {
+/**
+ * Uma vez só: põe a foto ilustrativa nos itens de exemplo que já existiam antes das fotos
+ * (Bar do Cais e cardápios de exemplo adicionados em outras lojas). Itens criados pelo dono
+ * não são tocados, e uma foto removida depois não volta.
+ */
+function migrateDemoPhotos(db: Db) {
+  const KEY_DONE = "demo-photos-v1";
+  if (db.migrations?.includes(KEY_DONE)) return;
+  const samples = demoProducts();
+  const byId = new Map(samples.map((p) => [p.id, p.image]));
+  const byText = new Map(samples.map((p) => [`${p.name}|${p.description}`, p.image]));
+  for (const p of db.products ?? []) {
+    if (p.image) continue;
+    const image = p.storeId === DEMO_STORE_ID ? byId.get(p.id) : byText.get(`${p.name}|${p.description}`);
+    if (image) p.image = image;
+  }
+  db.migrations = [...(db.migrations ?? []), KEY_DONE];
+  try {
+    write(db);
+  } catch {
+    // sem espaço: tenta de novo na próxima visita
+  }
+}
+
+function readLocal(): Db {
   if (cache) return cache;
   let db: Db | null = null;
   try {
@@ -57,6 +107,7 @@ function read(): Db {
     db = null;
   }
   if (db) migrateDefaultColors(db);
+  if (db) migrateDemoPhotos(db);
   if (!db || db.version !== 1) {
     db = buildDemoDb(new Date());
     try {
@@ -69,6 +120,23 @@ function read(): Db {
   return db;
 }
 
+/** Visão única para as telas: local + remota. Mesma referência até alguma das duas mudar. */
+function read(): Db {
+  if (merged) return merged;
+  const local = readLocal();
+  merged = {
+    ...local,
+    authResolved: remote.authResolved,
+    session: remote.account ? { accountId: remote.account.id } : local.session,
+    accounts: remote.account ? [...local.accounts, remote.account] : local.accounts,
+    stores: [...local.stores, ...remote.stores],
+    categories: [...local.categories, ...remote.categories],
+    products: [...local.products, ...remote.products],
+    orders: [...local.orders, ...remote.orders],
+  };
+  return merged;
+}
+
 function emit() {
   for (const l of listeners) l();
 }
@@ -76,6 +144,7 @@ function emit() {
 function onStorage(event: StorageEvent) {
   if (event.key === KEY || event.key === null) {
     cache = null;
+    merged = null;
     emit();
   }
 }
@@ -89,18 +158,36 @@ function subscribe(listener: () => void) {
   };
 }
 
+/** Visão mesclada (local + Supabase). */
 export function getDb(): Db {
   return read();
 }
 
-/** Aplica uma mudança numa cópia e só publica se conseguir salvar. */
+/** Só o documento local (demonstração). */
+export function getLocalDb(): Db {
+  return readLocal();
+}
+
+/** Aplica uma mudança numa cópia do documento LOCAL e só publica se conseguir salvar. */
 export function mutate<T>(fn: (db: Db) => T): T {
-  const next = structuredClone(read());
+  const next = structuredClone(readLocal());
   const result = fn(next);
   write(next);
   cache = next;
+  merged = null;
   emit();
   return result;
+}
+
+export function getRemote(): RemoteState {
+  return remote;
+}
+
+/** Troca a camada remota (sempre por um objeto novo) e avisa as telas. */
+export function setRemote(change: (r: RemoteState) => RemoteState) {
+  remote = change(remote);
+  merged = null;
+  emit();
 }
 
 /** null no servidor e no primeiro render; o documento depois da hidratação. */
@@ -110,7 +197,7 @@ export function useDb(): Db | null {
 
 /** Recria os dados de demonstração mantendo as contas criadas e a sessão atual. */
 export function resetDemoData() {
-  const current = read();
+  const current = readLocal();
   const fresh = buildDemoDb(new Date());
   const ownStores = current.stores.filter((s) => s.id !== fresh.stores[0].id);
   const ownIds = new Set(ownStores.map((s) => s.id));
@@ -125,10 +212,13 @@ export function resetDemoData() {
   };
   write(next);
   cache = next;
+  merged = null;
   emit();
 }
 
 /** Só para testes: esquece a cópia em memória para reler o localStorage. */
 export function resetCacheForTests() {
   cache = null;
+  merged = null;
+  remote = emptyRemote(true);
 }

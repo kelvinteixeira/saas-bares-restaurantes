@@ -10,8 +10,8 @@ export function DemoButton({ className, children = "Abrir o painel de demonstra√
     <button
       type="button"
       className={buttonClass("secondary", "lg", className)}
-      onClick={() => {
-        enterDemo();
+      onClick={async () => {
+        await enterDemo();
         router.push("/painel");
       }}
     >

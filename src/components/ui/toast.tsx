@@ -40,3 +40,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 export function useToast() {
   return useContext(ToastContext);
 }
+
+type ToastFn = (text: string, tone?: Toast["tone"]) => void;
+
+/** Roda uma ação assíncrona; se der erro, mostra a mensagem num aviso vermelho e devolve undefined. */
+export async function attempt<T>(toast: ToastFn, work: () => Promise<T>, success?: string): Promise<T | undefined> {
+  try {
+    const result = await work();
+    if (success) toast(success);
+    return result;
+  } catch (err) {
+    toast(err instanceof Error && err.message ? err.message : "Algo deu errado. Tente de novo.", "negative");
+    return undefined;
+  }
+}

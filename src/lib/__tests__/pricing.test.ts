@@ -53,3 +53,16 @@ describe("dinheiro", () => {
     expect(formatMoney(123456).replace(/\s/g, " ")).toBe("R$ 1.234,56");
   });
 });
+
+describe("fotos de exemplo", () => {
+  it("os itens de exemplo têm foto ilustrativa com crédito registrado", async () => {
+    const { DEMO_PHOTOS } = await import("@/lib/demo-photos");
+    const withPhoto = products.filter((p) => p.image);
+    expect(withPhoto).toHaveLength(15);
+    for (const p of withPhoto) {
+      expect(DEMO_PHOTOS[p.id].src).toBe(p.image);
+      expect(DEMO_PHOTOS[p.id].creator).toBeTruthy();
+      expect(DEMO_PHOTOS[p.id].license).toBeTruthy();
+    }
+  });
+});

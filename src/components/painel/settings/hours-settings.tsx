@@ -6,7 +6,7 @@ import type { Weekday, WeeklyHours } from "@/lib/types";
 import { usePainel } from "@/components/painel/painel-context";
 import { SaveBar, SettingsSection } from "@/components/painel/settings/section";
 import { Switch, inputClass } from "@/components/ui/field";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { isValidTime, storeStatus } from "@/lib/domain/hours";
 import { WEEKDAY_NAMES } from "@/lib/format";
 import { updateStore } from "@/lib/store/actions";
@@ -39,7 +39,7 @@ export function HoursSettings() {
 
   const setDay = (day: Weekday, intervals: WeeklyHours[Weekday]) => setHours((h) => ({ ...h, [day]: intervals }));
 
-  function save() {
+  async function save() {
     for (const day of ORDER) {
       for (const iv of hours[day]) {
         if (!isValidTime(iv.open) || !isValidTime(iv.close)) {
@@ -57,10 +57,14 @@ export function HoursSettings() {
       }
     }
     setError(null);
-    updateStore(store.id, (s) => {
-      s.hours = hours;
-    });
-    toast("Horários salvos");
+    await attempt(
+      toast,
+      () =>
+        updateStore(store.id, (s) => {
+          s.hours = hours;
+        }),
+      "Horários salvos",
+    );
   }
 
   return (

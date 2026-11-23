@@ -7,7 +7,7 @@ import type { Store } from "@/lib/types";
 import { usePainel } from "@/components/painel/painel-context";
 import { SaveBar, SettingsSection } from "@/components/painel/settings/section";
 import { Field, Input, Switch, inputClass } from "@/components/ui/field";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { formatMoney, moneyInput, parseMoney } from "@/lib/format";
 import { newId } from "@/lib/ids";
 import { updateStore } from "@/lib/store/actions";
@@ -60,7 +60,7 @@ export function DeliverySettings() {
   const setRegion = (id: string, change: Partial<RegionDraft>) =>
     setForm((f) => ({ ...f, regions: f.regions.map((r) => (r.id === id ? { ...r, ...change } : r)) }));
 
-  function save() {
+  async function save() {
     const next: Record<string, string> = {};
     const minOrder = form.minOrderText.trim() ? parseMoney(form.minOrderText) : 0;
     if (minOrder === null) next.minOrder = "Valor inválido.";
@@ -81,12 +81,16 @@ export function DeliverySettings() {
     if (!form.deliveryEnabled && !form.pickupEnabled && !form.tableEnabled) next.form = "Deixe pelo menos uma forma de atendimento ligada.";
     setErrors(next);
     if (Object.keys(next).length) return;
-    updateStore(store.id, (s) => {
-      s.delivery = { enabled: form.deliveryEnabled, minOrder: minOrder ?? 0, etaMin, etaMax, regions };
-      s.pickup = { enabled: form.pickupEnabled, etaMin: pMin, etaMax: pMax };
-      s.table = { enabled: form.tableEnabled, count: tableCount || s.table.count };
-    });
-    toast("Formas de atendimento salvas");
+    await attempt(
+      toast,
+      () =>
+        updateStore(store.id, (s) => {
+          s.delivery = { enabled: form.deliveryEnabled, minOrder: minOrder ?? 0, etaMin, etaMax, regions };
+          s.pickup = { enabled: form.pickupEnabled, etaMin: pMin, etaMax: pMax };
+          s.table = { enabled: form.tableEnabled, count: tableCount || s.table.count };
+        }),
+      "Formas de atendimento salvas",
+    );
   }
 
   const reset = () => {

@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { Check, MessageCircle } from "lucide-react";
-import { useDb } from "@/lib/store/db";
+import { getDb, getRemote, useDb } from "@/lib/store/db";
 import { storeBySlug } from "@/lib/store/actions";
+import { isRemoteStore, loadPublicOrder, loadPublicStore, remotePending } from "@/lib/store/remote";
+import { supabaseConfigured } from "@/lib/supabase/client";
 import { BrandScope, StoreLogo, brandButton } from "@/components/cardapio/brand";
 import { customerStatusLabel, isOpenOrder, statusFlow, statusLabel } from "@/lib/domain/orders";
 import { formatClock, formatMoney, formatOrderNumber, onlyDigits } from "@/lib/format";
@@ -14,16 +17,36 @@ const PAYMENT_LABEL = { pix: "Pix", card: "Cartão", cash: "Dinheiro" } as const
 /** Acompanhamento ao vivo: muda sozinho quando a loja avança o pedido no painel. */
 export function OrderTracking({ slug, id }: { slug: string; id: string }) {
   const db = useDb();
+
+  // Pedido de loja do Supabase: busca pela função get_public_order e confere de novo a cada 10 s
+  // enquanto estiver aberto (o cliente não recebe o tempo real, que é só do painel).
+  useEffect(() => {
+    void loadPublicStore(slug);
+    void loadPublicOrder(id);
+    const timer = window.setInterval(() => {
+      const order = getDb().orders.find((o) => o.id === id);
+      if (order && isRemoteStore(order.storeId) && order.status !== "concluido" && order.status !== "cancelado") {
+        void loadPublicOrder(id);
+      }
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [slug, id]);
+
   if (!db) return <div className="min-h-dvh" aria-busy="true" />;
   const store = storeBySlug(db, slug);
   const order = store ? db.orders.find((o) => o.id === id && o.storeId === store.id) : null;
 
   if (!store || !order) {
+    const remote = getRemote();
+    if (remotePending(remote, "slug", slug) && !store) return <div className="min-h-dvh" aria-busy="true" />;
+    if (remotePending(remote, "order", id)) return <div className="min-h-dvh" aria-busy="true" />;
     return (
       <main className="mx-auto max-w-[480px] px-4 py-16">
         <h1 className="text-[24px] leading-8 font-semibold">Pedido não encontrado</h1>
         <p className="mt-2 text-[15px] text-muted">
-          Nesta versão de testes o pedido fica salvo só no aparelho em que foi feito.
+          {supabaseConfigured()
+            ? "Confira o link do pedido. Se o problema continuar, fale com a loja."
+            : "Nesta versão de testes o pedido fica salvo só no aparelho em que foi feito."}
         </p>
         <Link href={`/${slug}`} className="mt-6 inline-block text-sm font-medium text-accent hover:underline">
           Voltar ao cardápio

@@ -10,7 +10,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Field, Input, Switch } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { Pill } from "@/components/ui/pill";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { useMediaQuery } from "@/lib/hooks";
 import { fromPrice, hasVariablePrice } from "@/lib/domain/pricing";
 import { formatMoney } from "@/lib/format";
@@ -45,14 +45,15 @@ export default function CardapioPage() {
     : [];
   const soldOut = products.filter((p) => !p.available).length;
 
-  const create = (name: string) => {
+  const create = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     if (categories.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
       toast("Já existe uma categoria com esse nome.", "negative");
       return;
     }
-    const id = addCategory(store.id, trimmed);
+    const id = await attempt(toast, () => addCategory(store.id, trimmed));
+    if (!id) return;
     setCategoryId(id);
     setNewCategory("");
   };
@@ -76,6 +77,7 @@ export default function CardapioPage() {
       categories={categories}
       isNew={editing.isNew}
       onDone={() => setEditing(null)}
+      showTitle={wide}
     />
   );
 
@@ -116,8 +118,9 @@ export default function CardapioPage() {
           <Button
             variant="primary"
             className="mt-4"
-            onClick={() => {
-              toast(fillSampleMenu(store.id) ? "Cardápio de exemplo adicionado" : "O cardápio de exemplo já está na loja.");
+            onClick={async () => {
+              const added = await attempt(toast, () => fillSampleMenu(store.id));
+              if (added !== undefined) toast(added ? "Cardápio de exemplo adicionado" : "O cardápio de exemplo já está na loja.");
             }}
           >
             Preencher com cardápio de exemplo
@@ -266,10 +269,13 @@ export default function CardapioPage() {
                     <span className="relative z-10 col-start-2 flex items-center gap-2 sm:col-start-auto" title={p.available ? "Disponível" : "Esgotado"}>
                       <Switch
                         checked={p.available}
-                        onChange={(v) => {
-                          setProductAvailable(p.id, v);
-                          toast(v ? `${p.name} voltou ao cardápio` : `${p.name} marcado como esgotado`);
-                        }}
+                        onChange={(v) =>
+                          void attempt(
+                            toast,
+                            () => setProductAvailable(p.id, v),
+                            v ? `${p.name} voltou ao cardápio` : `${p.name} marcado como esgotado`,
+                          )
+                        }
                         label={`${p.name} disponível para pedir`}
                       />
                       <span className="text-xs text-muted sm:hidden">{p.available ? "Disponível" : "Esgotado"}</span>
@@ -279,7 +285,7 @@ export default function CardapioPage() {
                         type="button"
                         aria-label={`Subir ${p.name}`}
                         disabled={i === 0}
-                        onClick={() => moveProduct(p.categoryId, p.id, -1)}
+                        onClick={() => void attempt(toast, () => moveProduct(p.categoryId, p.id, -1))}
                         className="grid size-8 place-items-center rounded-control text-muted hover:bg-active hover:text-ink disabled:opacity-30"
                       >
                         <ChevronUp className="size-4" strokeWidth={1.5} />
@@ -288,7 +294,7 @@ export default function CardapioPage() {
                         type="button"
                         aria-label={`Descer ${p.name}`}
                         disabled={i === items.length - 1}
-                        onClick={() => moveProduct(p.categoryId, p.id, 1)}
+                        onClick={() => void attempt(toast, () => moveProduct(p.categoryId, p.id, 1))}
                         className="grid size-8 place-items-center rounded-control text-muted hover:bg-active hover:text-ink disabled:opacity-30"
                       >
                         <ChevronDown className="size-4" strokeWidth={1.5} />
@@ -335,13 +341,14 @@ export default function CardapioPage() {
             <Button onClick={() => setConfirmDelete(null)}>Manter</Button>
             <Button
               variant="danger"
-              onClick={() => {
+              onClick={async () => {
                 if (!confirmDelete) return;
-                deleteCategory(confirmDelete.id);
+                const target = confirmDelete;
+                setConfirmDelete(null);
+                const done = await attempt(toast, () => deleteCategory(target.id).then(() => true), "Categoria apagada");
+                if (!done) return;
                 setCategoryId(null);
                 setEditing(null);
-                setConfirmDelete(null);
-                toast("Categoria apagada");
               }}
             >
               Apagar categoria e itens
@@ -381,12 +388,13 @@ function CategoryControls({
   const [name, setName] = useState(category.name);
   const changed = name.trim() !== category.name && name.trim().length > 0;
   const duplicate = changed && takenNames.includes(name.trim().toLowerCase());
+  const toast = useToast();
   return (
     <div className="flex flex-col gap-3">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (changed && !duplicate) updateCategory(category.id, (c) => (c.name = name.trim()));
+          if (changed && !duplicate) void attempt(toast, () => updateCategory(category.id, (c) => (c.name = name.trim())));
         }}
       >
         <Field label="Nome da categoria" error={duplicate ? "Já existe uma categoria com esse nome." : undefined}>
@@ -406,15 +414,15 @@ function CategoryControls({
         <span className="text-sm">Mostrar no cardápio</span>
         <Switch
           checked={category.visible}
-          onChange={(v) => updateCategory(category.id, (c) => (c.visible = v))}
+          onChange={(v) => void attempt(toast, () => updateCategory(category.id, (c) => (c.visible = v)))}
           label="Mostrar categoria no cardápio"
         />
       </div>
       <div className="flex items-center gap-1">
-        <Button size="sm" disabled={isFirst} onClick={() => moveCategory(storeId, category.id, -1)} aria-label="Subir categoria">
+        <Button size="sm" disabled={isFirst} onClick={() => void attempt(toast, () => moveCategory(storeId, category.id, -1))} aria-label="Subir categoria">
           <ChevronUp className="size-4" strokeWidth={1.5} />
         </Button>
-        <Button size="sm" disabled={isLast} onClick={() => moveCategory(storeId, category.id, 1)} aria-label="Descer categoria">
+        <Button size="sm" disabled={isLast} onClick={() => void attempt(toast, () => moveCategory(storeId, category.id, 1))} aria-label="Descer categoria">
           <ChevronDown className="size-4" strokeWidth={1.5} />
         </Button>
         <Button size="sm" variant="danger" className="ml-auto" onClick={onDelete}>

@@ -156,16 +156,29 @@ export interface Order {
   notes?: string;
 }
 
+/** Função de quem entra no painel: dono, gerente, caixa, garçom ou cozinha. */
+export type StoreRole = "owner" | "manager" | "cashier" | "waiter" | "kitchen";
+
 export interface Account {
   id: string;
   name: string;
   email: string;
   passwordHash: string; // só na simulação; na fase 2 o Supabase Auth cuida disso
   createdAt: string;
+  /** Loja e função vindas da equipe (store_members). Contas locais são donas da própria loja. */
+  storeId?: string;
+  role?: StoreRole;
 }
 
 export interface Db {
   version: 1;
+  /** Migrações de dados já aplicadas neste navegador (cada uma roda uma vez só). */
+  migrations?: string[];
+  /**
+   * Só na visão mesclada (não é salvo): false enquanto a sessão do Supabase ainda está sendo
+   * conferida, para o painel não mandar para /entrar antes da hora.
+   */
+  authResolved?: boolean;
   session: { accountId: string } | null;
   accounts: Account[];
   stores: Store[];

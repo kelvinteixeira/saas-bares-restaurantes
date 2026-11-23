@@ -43,114 +43,108 @@ beforeEach(() => {
 });
 
 describe("criar pedido (validações do servidor)", () => {
-  it("aceita um pedido válido e calcula os totais a partir do cardápio", () => {
-    const order = placeOrder(base());
+  it("aceita um pedido válido e calcula os totais a partir do cardápio", async () => {
+    const order = await placeOrder(base());
     expect(order.subtotal).toBe(8400);
     expect(order.total).toBe(8400);
     expect(order.status).toBe("novo");
     expect(getDb().orders.at(-1)!.id).toBe(order.id);
   });
 
-  it("cobra a taxa do bairro na entrega", () => {
-    const order = placeOrder(
+  it("cobra a taxa do bairro na entrega", async () => {
+    const order = await placeOrder(
       base({ mode: "delivery", delivery: { regionId: "r-centro", street: "Rua A", number: "10" } }),
     );
     expect(order.deliveryFee).toBe(500);
     expect(order.total).toBe(8900);
   });
 
-  it("recusa loja fechada", () => {
+  it("recusa loja fechada", async () => {
     mutate((db) => {
       db.stores[0].manualStatus = "closed";
     });
-    expect(() => placeOrder(base())).toThrow(CheckoutError);
+    await expect(placeOrder(base())).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa item sem a escolha obrigatória", () => {
-    expect(() => placeOrder(base({ lines: [{ key: "k", productId: "p-baiao", selections: {}, quantity: 1 }] }))).toThrow(
-      CheckoutError,
-    );
+  it("recusa item sem a escolha obrigatória", async () => {
+    await expect(placeOrder(base({ lines: [{ key: "k", productId: "p-baiao", selections: {}, quantity: 1 }] }))).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa opção que esgotou", () => {
+  it("recusa opção que esgotou", async () => {
     mutate((db) => {
       const g = db.products.find((p) => p.id === "p-batata")!.optionGroups[1];
       g.options.find((o) => o.id === "o-bacon")!.available = false;
     });
     const line = { key: "k", productId: "p-batata", selections: { "g-batata-tam": ["o-meia"], "g-batata-add": ["o-bacon"] }, quantity: 1 };
-    expect(() => placeOrder(base({ lines: [line] }))).toThrow(CheckoutError);
+    await expect(placeOrder(base({ lines: [line] }))).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa opção repetida para cobrar duas vezes", () => {
+  it("recusa opção repetida para cobrar duas vezes", async () => {
     const line = { key: "k", productId: "p-batata", selections: { "g-batata-tam": ["o-inteira", "o-inteira"] }, quantity: 1 };
-    expect(() => placeOrder(base({ lines: [line] }))).toThrow(CheckoutError);
+    await expect(placeOrder(base({ lines: [line] }))).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa item de categoria escondida", () => {
+  it("recusa item de categoria escondida", async () => {
     mutate((db) => {
       db.categories.find((c) => c.id === "c-petiscos")!.visible = false;
     });
-    expect(() => placeOrder(base())).toThrow(CheckoutError);
+    await expect(placeOrder(base())).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa quantidade zero, negativa ou quebrada", () => {
+  it("recusa quantidade zero, negativa ou quebrada", async () => {
     for (const quantity of [0, -1, 1.5, 1000]) {
-      expect(() => placeOrder(base({ lines: [{ key: "k", productId: "p-isca", selections: {}, quantity }] }))).toThrow(
-        CheckoutError,
-      );
+      await expect(placeOrder(base({ lines: [{ key: "k", productId: "p-isca", selections: {}, quantity }] }))).rejects.toThrow(CheckoutError);
     }
   });
 
-  it("recusa forma de pagamento desligada pela loja", () => {
+  it("recusa forma de pagamento desligada pela loja", async () => {
     mutate((db) => {
       db.stores[0].payment.cash = false;
     });
-    expect(() => placeOrder(base({ payment: { method: "cash" } }))).toThrow(CheckoutError);
+    await expect(placeOrder(base({ payment: { method: "cash" } }))).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa troco menor que o total", () => {
-    expect(() => placeOrder(base({ payment: { method: "cash", changeFor: 5000 } }))).toThrow(CheckoutError);
+  it("recusa troco menor que o total", async () => {
+    await expect(placeOrder(base({ payment: { method: "cash", changeFor: 5000 } }))).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa cliente sem nome, e entrega/retirada sem WhatsApp válido", () => {
-    expect(() => placeOrder(base({ customer: { name: "  ", phone: "81999990000" } }))).toThrow(CheckoutError);
-    expect(() => placeOrder(base({ customer: { name: "Ana", phone: "123" } }))).toThrow(CheckoutError);
+  it("recusa cliente sem nome, e entrega/retirada sem WhatsApp válido", async () => {
+    await expect(placeOrder(base({ customer: { name: "  ", phone: "81999990000" } }))).rejects.toThrow(CheckoutError);
+    await expect(placeOrder(base({ customer: { name: "Ana", phone: "123" } }))).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa entrega sem rua ou número", () => {
-    expect(() =>
+  it("recusa entrega sem rua ou número", async () => {
+    await expect(
       placeOrder(base({ mode: "delivery", delivery: { regionId: "r-centro", street: " ", number: "10" } })),
-    ).toThrow(CheckoutError);
+    ).rejects.toThrow(CheckoutError);
   });
 
-  it("recusa bairro desativado", () => {
-    expect(() =>
+  it("recusa bairro desativado", async () => {
+    await expect(
       placeOrder(base({ mode: "delivery", delivery: { regionId: "r-ilha", street: "Rua A", number: "1" } })),
-    ).toThrow(CheckoutError);
+    ).rejects.toThrow(CheckoutError);
   });
 
-  it("pedido na mesa não exige WhatsApp, mas exige mesa válida", () => {
-    const ok = placeOrder(base({ mode: "table", tableNumber: 3, customer: { name: "Mesa", phone: "" } }));
+  it("pedido na mesa não exige WhatsApp, mas exige mesa válida", async () => {
+    const ok = await placeOrder(base({ mode: "table", tableNumber: 3, customer: { name: "Mesa", phone: "" } }));
     expect(ok.tableNumber).toBe(3);
-    expect(() => placeOrder(base({ mode: "table", tableNumber: 99, customer: { name: "Mesa", phone: "" } }))).toThrow(
-      CheckoutError,
-    );
+    await expect(placeOrder(base({ mode: "table", tableNumber: 99, customer: { name: "Mesa", phone: "" } }))).rejects.toThrow(CheckoutError);
   });
 
-  it("numera os pedidos em sequência", () => {
-    const a = placeOrder(base());
-    const b = placeOrder(base());
+  it("numera os pedidos em sequência", async () => {
+    const a = await placeOrder(base());
+    const b = await placeOrder(base());
     expect(b.number).toBe(a.number + 1);
   });
 });
 
 describe("andamento do pedido", () => {
-  it("avança pelo fluxo e não cancela depois de sair para entrega", () => {
-    const order = placeOrder(base({ mode: "delivery", delivery: { regionId: "r-centro", street: "Rua A", number: "1" } }));
-    advanceOrder(order.id); // em preparo
-    advanceOrder(order.id); // pronto
-    advanceOrder(order.id); // a caminho
-    cancelOrder(order.id);
+  it("avança pelo fluxo e não cancela depois de sair para entrega", async () => {
+    const order = await placeOrder(base({ mode: "delivery", delivery: { regionId: "r-centro", street: "Rua A", number: "1" } }));
+    await advanceOrder(order.id); // em preparo
+    await advanceOrder(order.id); // pronto
+    await advanceOrder(order.id); // a caminho
+    await cancelOrder(order.id);
     const saved = getDb().orders.find((o) => o.id === order.id)!;
     expect(saved.status).toBe("a_caminho");
     expect(saved.history.map((h) => h.status)).toEqual(["novo", "em_preparo", "pronto", "a_caminho"]);
@@ -161,8 +155,8 @@ describe("cardápio de exemplo", () => {
   it("adiciona uma vez e não duplica num segundo clique", async () => {
     await signUp({ name: "Dono", email: "dono@exemplo.local", password: "senha-segura-1", storeName: "Bar Novo" });
     const storeId = getDb().stores.find((s) => s.name === "Bar Novo")!.id;
-    expect(fillSampleMenu(storeId)).toBe(true);
-    expect(fillSampleMenu(storeId)).toBe(false);
+    expect(await fillSampleMenu(storeId)).toBe(true);
+    expect(await fillSampleMenu(storeId)).toBe(false);
     expect(getDb().products.filter((p) => p.storeId === storeId)).toHaveLength(17);
     expect(getDb().categories.filter((c) => c.storeId === storeId)).toHaveLength(5);
   });

@@ -16,6 +16,8 @@ export default function CriarContaPage() {
   const [form, setForm] = useState({ name: "", storeName: "", email: "", password: "" });
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
+  // Com a confirmação de e-mail ligada, a conta só entra depois do link: mostramos para onde ele foi.
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -36,7 +38,12 @@ export default function CriarContaPage() {
     if (Object.keys(next).length) return;
     setBusy(true);
     try {
-      await signUp(form);
+      const { needsConfirmation } = await signUp(form);
+      if (needsConfirmation) {
+        setSentTo(form.email.trim().toLowerCase());
+        setBusy(false);
+        return;
+      }
       router.push("/painel");
     } catch (err) {
       setErrors({ email: err instanceof AuthError ? err.message : "Não foi possível criar a conta." });
@@ -50,6 +57,18 @@ export default function CriarContaPage() {
       subtitle="Em poucos minutos seu cardápio fica no ar com um link próprio e QR code para as mesas."
       aside={<OrderTicketPreview />}
     >
+      {sentTo ? (
+        <div role="status" className="rounded-card bg-surface p-5">
+          <p className="text-[15px] font-semibold">Confirme seu e-mail para entrar</p>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Enviamos um link de confirmação para <span className="font-medium text-ink">{sentTo}</span>. Abra o e-mail,
+            clique no link e depois entre com a sua senha. Se não chegar em alguns minutos, olhe a caixa de spam.
+          </p>
+          <Link href="/entrar" className="mt-4 inline-flex text-sm font-medium text-accent hover:underline">
+            Ir para a tela de entrar
+          </Link>
+        </div>
+      ) : (
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <Field label="Seu nome" error={errors.name}>
           {(p) => <Input {...p} autoComplete="name" value={form.name} onChange={set("name")} />}
@@ -69,6 +88,7 @@ export default function CriarContaPage() {
           {busy ? "Criando…" : "Criar conta"}
         </Button>
       </form>
+      )}
       <p className="mt-6 text-sm text-muted">
         Já tem conta?{" "}
         <Link href="/entrar" className="font-medium text-accent hover:underline">

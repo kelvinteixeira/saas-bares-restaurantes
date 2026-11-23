@@ -1,0 +1,272 @@
+"use client";
+
+// Camada remota: busca no Supabase e mantém em memória (db.ts › setRemote) o que as telas precisam.
+// - initRemote: confere a sessão ao abrir o app e acompanha login/logout.
+// - loadOwner: loja do dono, cardápio, pedidos recentes e canal de tempo real dos pedidos.
+// - loadPublicStore: cardápio público por endereço (/[slug]).
+// - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
+
+import type { RealtimeChannel, User } from "@supabase/supabase-js";
+import type { Account, Category, Order, Product, Store, StoreRole } from "@/lib/types";
+import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
+import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
+import {
+  rowToCategory,
+  rowToOrder,
+  rowToProduct,
+  rowToStore,
+  type CategoryRow,
+  type OrderRow,
+  type ProductRow,
+  type StoreRow,
+} from "@/lib/store/mappers";
+
+let booted = false;
+let ordersChannel: RealtimeChannel | null = null;
+// Carga em andamento por usuário: quem chamar de novo espera a mesma.
+const ownerLoads = new Map<string, Promise<void>>();
+
+// ---------- ajudantes de lista ----------
+
+export function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
+  const i = list.findIndex((x) => x.id === item.id);
+  if (i < 0) return [...list, item];
+  const next = list.slice();
+  next[i] = item;
+  return next;
+}
+
+function replaceForStore<T extends { storeId: string }>(list: T[], storeId: string, items: T[]): T[] {
+  return [...list.filter((x) => x.storeId !== storeId), ...items];
+}
+
+export function remoteUpsertStore(store: Store) {
+  setRemote((r) => ({ ...r, stores: upsertById(r.stores, store) }));
+}
+export function remoteUpsertCategory(category: Category) {
+  setRemote((r) => ({ ...r, categories: upsertById(r.categories, category) }));
+}
+export function remoteUpsertProduct(product: Product) {
+  setRemote((r) => ({ ...r, products: upsertById(r.products, product) }));
+}
+export function remoteUpsertOrder(order: Order) {
+  setRemote((r) => ({ ...r, orders: upsertById(r.orders, order) }));
+}
+
+export function isRemoteStore(storeId: string): boolean {
+  return getRemote().stores.some((s) => s.id === storeId);
+}
+
+/** Erro do Supabase em português para mostrar na tela. */
+export function friendly(error: { message?: string; code?: string } | null, fallback: string): Error {
+  if (!error) return new Error(fallback);
+  if (error.code === "23505") return new Error("Já existe um registro com esses dados.");
+  if (error.code === "42501" || /row-level security/i.test(error.message ?? "")) {
+    return new Error("Você não tem permissão para mudar isso. Entre de novo na sua conta.");
+  }
+  if (/fetch|network/i.test(error.message ?? "")) return new Error("Sem conexão com o servidor. Tente de novo.");
+  return new Error(error.message || fallback);
+}
+
+// ---------- sessão ----------
+
+function toAccount(user: User): Account {
+  const meta = (user.user_metadata ?? {}) as { name?: string };
+  return {
+    id: user.id,
+    name: meta.name?.trim() || user.email?.split("@")[0] || "Dono",
+    email: user.email ?? "",
+    passwordHash: "",
+    createdAt: user.created_at,
+  };
+}
+
+/** Chamado uma vez pelo RemoteBoot no layout raiz. */
+export function initRemote() {
+  if (booted || !supabaseConfigured()) return;
+  booted = true;
+  const sb = getSupabase();
+
+  sb.auth
+    .getSession()
+    .then(async ({ data }) => {
+      if (data.session?.user) await loadOwner(data.session.user).catch((e) => console.error("Falha ao carregar a loja", e));
+    })
+    .finally(() => setRemote((r) => ({ ...r, authResolved: true })));
+
+  sb.auth.onAuthStateChange((event, session) => {
+    // Chamadas ao Supabase dentro deste callback podem travar: adia para depois dele.
+    window.setTimeout(() => {
+      if (event === "SIGNED_OUT") clearOwner();
+      else if (event === "SIGNED_IN" && session?.user && getRemote().account?.id !== session.user.id) {
+        void loadOwner(session.user).catch((e) => console.error("Falha ao carregar a loja", e));
+      }
+    }, 0);
+  });
+}
+
+/** Esquece a conta e tudo que veio dela; as lojas públicas são buscadas de novo quando abertas. */
+export function clearOwner() {
+  if (ordersChannel) {
+    void ordersChannel.unsubscribe();
+    ordersChannel = null;
+  }
+  ownerLoads.clear();
+  setRemote(() => emptyRemote(true));
+}
+
+/** Busca a loja do dono, o cardápio e os pedidos (últimos 8 dias e os ainda abertos). */
+export function loadOwner(user: User): Promise<void> {
+  const running = ownerLoads.get(user.id);
+  if (running) return running;
+  const load = fetchOwner(user).finally(() => ownerLoads.delete(user.id));
+  ownerLoads.set(user.id, load);
+  return load;
+}
+
+async function fetchOwner(user: User) {
+  {
+    const sb = getSupabase();
+    const account = toAccount(user);
+    // A loja vem da equipe: quem é dono de alguma loja entra nela; senão, na primeira em que trabalha.
+    const { data: memberships, error: memberError } = await sb
+      .from("store_members")
+      .select("store_id, role, created_at")
+      .eq("user_id", user.id)
+      .order("created_at");
+    if (memberError) throw friendly(memberError, "Não foi possível carregar a sua loja.");
+    const list = (memberships ?? []) as { store_id: string; role: StoreRole }[];
+    const membership = list.find((m) => m.role === "owner") ?? list[0];
+    if (!membership) {
+      setRemote((r) => ({ ...r, account }));
+      return;
+    }
+    const { data: storeRow, error } = await sb.from("stores").select("*").eq("id", membership.store_id).maybeSingle<StoreRow>();
+    if (error) throw friendly(error, "Não foi possível carregar a sua loja.");
+    if (!storeRow) {
+      setRemote((r) => ({ ...r, account }));
+      return;
+    }
+    const store = rowToStore(storeRow);
+    account.storeId = store.id;
+    account.role = membership.role;
+    const since = new Date(Date.now() - 8 * 86400000).toISOString();
+    const [cats, prods, recent, open] = await Promise.all([
+      sb.from("categories").select("*").eq("store_id", store.id),
+      sb.from("products").select("*").eq("store_id", store.id),
+      sb.from("orders").select("*").eq("store_id", store.id).gte("created_at", since),
+      sb.from("orders").select("*").eq("store_id", store.id).not("status", "in", "(concluido,cancelado)"),
+    ]);
+    for (const res of [cats, prods, recent, open]) if (res.error) throw friendly(res.error, "Não foi possível carregar a sua loja.");
+    const orders = new Map<string, Order>();
+    for (const row of [...(recent.data ?? []), ...(open.data ?? [])] as OrderRow[]) orders.set(row.id, rowToOrder(row));
+
+    setRemote((r) => ({
+      ...r,
+      account,
+      stores: upsertById(r.stores, store),
+      categories: replaceForStore(r.categories, store.id, ((cats.data ?? []) as CategoryRow[]).map(rowToCategory)),
+      products: replaceForStore(r.products, store.id, ((prods.data ?? []) as ProductRow[]).map(rowToProduct)),
+      orders: replaceForStore(r.orders, store.id, [...orders.values()]),
+      slugState: { ...r.slugState, [store.slug]: "done" },
+    }));
+    subscribeOrders(store.id);
+  }
+}
+
+/** Pedidos novos e mudanças de status chegam na hora (Realtime respeita as regras de acesso). */
+function subscribeOrders(storeId: string) {
+  const sb = getSupabase();
+  if (ordersChannel) void ordersChannel.unsubscribe();
+  ordersChannel = sb
+    .channel(`pedidos-${storeId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "orders", filter: `store_id=eq.${storeId}` },
+      (payload) => {
+        if (payload.eventType === "DELETE") {
+          const id = (payload.old as { id?: string }).id;
+          if (id) setRemote((r) => ({ ...r, orders: r.orders.filter((o) => o.id !== id) }));
+          return;
+        }
+        remoteUpsertOrder(rowToOrder(payload.new as OrderRow));
+      },
+    )
+    .subscribe();
+}
+
+// ---------- público ----------
+
+/** Busca a loja pelo endereço, se não for a demonstração local nem já estiver carregada. */
+export async function loadPublicStore(slug: string) {
+  if (!supabaseConfigured()) return;
+  if (getLocalDb().stores.some((s) => s.slug === slug)) return;
+  const state = getRemote();
+  if (state.slugState[slug] || state.stores.some((s) => s.slug === slug)) return;
+  setRemote((r) => ({ ...r, slugState: { ...r.slugState, [slug]: "loading" } }));
+  try {
+    const sb = getSupabase();
+    const { data: storeRow, error } = await sb.from("stores").select("*").eq("slug", slug).maybeSingle<StoreRow>();
+    if (error) throw error;
+    if (storeRow) {
+      const store = rowToStore(storeRow);
+      const [cats, prods] = await Promise.all([
+        sb.from("categories").select("*").eq("store_id", store.id),
+        sb.from("products").select("*").eq("store_id", store.id),
+      ]);
+      if (cats.error) throw cats.error;
+      if (prods.error) throw prods.error;
+      setRemote((r) => ({
+        ...r,
+        stores: upsertById(r.stores, store),
+        categories: replaceForStore(r.categories, store.id, ((cats.data ?? []) as CategoryRow[]).map(rowToCategory)),
+        products: replaceForStore(r.products, store.id, ((prods.data ?? []) as ProductRow[]).map(rowToProduct)),
+      }));
+    }
+  } catch (e) {
+    console.error("Falha ao buscar o cardápio", e);
+  } finally {
+    setRemote((r) => ({ ...r, slugState: { ...r.slugState, [slug]: "done" } }));
+  }
+}
+
+/** Busca (ou atualiza) um pedido para a página de acompanhamento. */
+export async function loadPublicOrder(orderId: string) {
+  if (!supabaseConfigured()) return;
+  if (getLocalDb().orders.some((o) => o.id === orderId)) return;
+  if (!/^[0-9a-f-]{36}$/i.test(orderId)) {
+    setRemote((r) => ({ ...r, orderState: { ...r.orderState, [orderId]: "done" } }));
+    return;
+  }
+  if (!getRemote().orderState[orderId]) {
+    setRemote((r) => ({ ...r, orderState: { ...r.orderState, [orderId]: "loading" } }));
+  }
+  try {
+    const { data, error } = await getSupabase().rpc("get_public_order", { order_id: orderId });
+    if (error) throw error;
+    if (data) remoteUpsertOrder(rowToOrder(data as OrderRow));
+  } catch (e) {
+    console.error("Falha ao buscar o pedido", e);
+  } finally {
+    setRemote((r) => (r.orderState[orderId] === "done" ? r : { ...r, orderState: { ...r.orderState, [orderId]: "done" } }));
+  }
+}
+
+/** Para a tela saber se ainda vale esperar a busca remota antes de dizer "não encontrado". */
+export function remotePending(state: RemoteState, kind: "slug" | "order", key: string): boolean {
+  if (!supabaseConfigured()) return false;
+  const value = kind === "slug" ? state.slugState[key] : state.orderState[key];
+  return value !== "done";
+}
+
+// ---------- fotos ----------
+
+/** Envia uma foto em data URL para fotos/{storeId}/... e devolve a URL pública. */
+export async function uploadDataUrl(storeId: string, prefix: string, dataUrl: string): Promise<string> {
+  const sb = getSupabase();
+  const blob = await (await fetch(dataUrl)).blob();
+  const path = `${storeId}/${prefix}-${Date.now()}.jpg`;
+  const { error } = await sb.storage.from("fotos").upload(path, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+  if (error) throw friendly(error, "Não foi possível enviar a foto.");
+  return sb.storage.from("fotos").getPublicUrl(path).data.publicUrl;
+}

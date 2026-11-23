@@ -17,6 +17,7 @@ import { storeStatus } from "@/lib/domain/hours";
 import { fromPrice, hasVariablePrice, lowestDeliveryFee } from "@/lib/domain/pricing";
 import { formatMoney, formatPhone, onlyDigits } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { DEMO_PHOTO_PREFIX } from "@/lib/demo-photos";
 
 const normalize = (s: string) =>
   s
@@ -276,7 +277,15 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
                   {formatPhone(s.phone)}
                 </a>
               )}
-              <p className="mt-6 text-xs">
+              {products.some((p) => p.image?.startsWith(DEMO_PHOTO_PREFIX)) && (
+                <p className="mt-6 text-xs">
+                  Fotos ilustrativas do Wikimedia Commons ·{" "}
+                  <Link href="/creditos-das-fotos" className="font-medium hover:underline">
+                    créditos
+                  </Link>
+                </p>
+              )}
+              <p className="mt-2 text-xs">
                 Cardápio digital por{" "}
                 <Link href="/" className="font-medium hover:underline">
                   Comanda

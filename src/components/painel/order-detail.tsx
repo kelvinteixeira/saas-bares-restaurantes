@@ -15,7 +15,7 @@ import { advanceOrder, cancelOrder } from "@/lib/store/actions";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 
 const PAYMENT_LABEL = { pix: "Pix na entrega", card: "Cartão na entrega", cash: "Dinheiro" } as const;
 
@@ -149,10 +149,9 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
             variant="primary"
             size="lg"
             className="flex-1"
-            onClick={() => {
-              advanceOrder(order.id);
-              toast(`${formatOrderNumber(order.number)}: ${action.toLowerCase()}`);
-            }}
+            onClick={() =>
+              void attempt(toast, () => advanceOrder(order.id), `${formatOrderNumber(order.number)}: ${action.toLowerCase()}`)
+            }
           >
             {action}
           </Button>
@@ -178,9 +177,8 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
             <Button
               variant="danger"
               onClick={() => {
-                cancelOrder(order.id);
                 setConfirmCancel(false);
-                toast(`${formatOrderNumber(order.number)} cancelado`);
+                void attempt(toast, () => cancelOrder(order.id), `${formatOrderNumber(order.number)} cancelado`);
               }}
             >
               Cancelar pedido

@@ -51,7 +51,7 @@ export function StoreSettings() {
   const setAddress = (key: keyof Store["address"], value: string) =>
     setForm((f) => ({ ...f, address: { ...f.address, [key]: value } }));
 
-  function save() {
+  async function save() {
     const next: Record<string, string> = {};
     if (!form.name.trim()) next.name = "O nome não pode ficar vazio.";
     const phone = onlyDigits(form.phone);
@@ -63,12 +63,12 @@ export function StoreSettings() {
     setErrors(next);
     if (Object.keys(next).length) return;
     try {
-      updateStore(store.id, (s) => {
+      await updateStore(store.id, (s) => {
         Object.assign(s, { ...form, name: form.name.trim(), phone, description: form.description.trim() });
       });
       toast("Dados da loja salvos");
     } catch (err) {
-      toast(err instanceof StorageFullError ? err.message : "Não foi possível salvar.", "negative");
+      toast(err instanceof StorageFullError || err instanceof Error ? err.message : "Não foi possível salvar.", "negative");
     }
   }
 

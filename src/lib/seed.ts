@@ -17,6 +17,7 @@ import type {
 import { seededRandom } from "@/lib/ids";
 import { unitPrice, type Selections } from "@/lib/domain/pricing";
 import { statusFlow } from "@/lib/domain/orders";
+import { DEMO_PHOTOS } from "@/lib/demo-photos";
 
 export const DEMO_ACCOUNT_ID = "demo-account";
 export const DEMO_STORE_ID = "demo-store";
@@ -88,9 +89,14 @@ function product(p: Omit<Product, "storeId" | "position" | "available" | "option
   return { storeId: DEMO_STORE_ID, position: position++, available: true, optionGroups: [], ...p };
 }
 
+/** Itens de exemplo com a foto ilustrativa do prato, quando houver uma. */
+function withDemoPhotos(products: Product[]): Product[] {
+  return products.map((p) => (DEMO_PHOTOS[p.id] ? { ...p, image: DEMO_PHOTOS[p.id].src } : p));
+}
+
 export function demoProducts(): Product[] {
   position = 0;
-  return [
+  return withDemoPhotos([
     product({
       id: "p-batata",
       categoryId: "c-petiscos",
@@ -321,7 +327,7 @@ export function demoProducts(): Product[] {
       description: "Banana, queijo coalho, açúcar e canela.",
       price: 1800,
     }),
-  ];
+  ]);
 }
 
 const FIRST_NAMES = [

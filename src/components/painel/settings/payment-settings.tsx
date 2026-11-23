@@ -6,7 +6,7 @@ import { usePainel } from "@/components/painel/painel-context";
 import { SaveBar, SettingsSection } from "@/components/painel/settings/section";
 import { Switch } from "@/components/ui/field";
 import { Pill } from "@/components/ui/pill";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { updateStore } from "@/lib/store/actions";
 
 const OPTIONS: { key: keyof Store["payment"]; title: string; description: string }[] = [
@@ -43,16 +43,20 @@ export function PaymentSettings() {
             setPayment(store.payment);
             setError(null);
           }}
-          onSave={() => {
+          onSave={async () => {
             if (!payment.pix && !payment.card && !payment.cash) {
               setError("Deixe pelo menos uma forma de pagamento ligada.");
               return;
             }
             setError(null);
-            updateStore(store.id, (s) => {
-              s.payment = payment;
-            });
-            toast("Formas de pagamento salvas");
+            await attempt(
+              toast,
+              () =>
+                updateStore(store.id, (s) => {
+                  s.payment = payment;
+                }),
+              "Formas de pagamento salvas",
+            );
           }}
         />
       </SettingsSection>

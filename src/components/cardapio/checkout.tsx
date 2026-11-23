@@ -126,7 +126,7 @@ export function Checkout({ slug }: { slug: string }) {
     if (!mode || !payment) return;
     setBusy(true);
     try {
-      const order = placeOrder({
+      const order = await placeOrder({
         storeId: store.id,
         mode,
         lines: cart.lines,

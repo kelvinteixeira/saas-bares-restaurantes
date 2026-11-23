@@ -69,17 +69,20 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const now = useNow(20000);
   const [soundOn, setSoundOn] = useSoundPreference();
   const account = db ? currentAccount(db) : null;
-  const store = db && account ? ownerStore(db, account.id) : null;
+  const store = db && account ? ownerStore(db, account) : null;
+  // Com Supabase, espera conferir a sessão antes de decidir que ninguém entrou.
+  const authResolved = db?.authResolved !== false;
 
   useEffect(() => {
-    if (db && !account) router.replace("/entrar");
-  }, [db, account, router]);
+    if (db && authResolved && !account) router.replace("/entrar");
+  }, [db, authResolved, account, router]);
 
   const value = useMemo<PainelValue | null>(
     () => (db && account && store ? { db, account, store, now } : null),
     [db, account, store, now],
   );
 
+  if (db && authResolved && account && !store) return <MissingStore />;
   if (!value) return <ShellSkeleton />;
 
   return (
@@ -89,6 +92,33 @@ function ShellInner({ children }: { children: React.ReactNode }) {
         {children}
       </Frame>
     </PainelContext.Provider>
+  );
+}
+
+/** Conta sem loja: o cadastro não chegou a criar a loja no banco (raro). */
+function MissingStore() {
+  const router = useRouter();
+  return (
+    <div className="grid min-h-dvh place-items-center bg-ground px-4">
+      <div className="max-w-[440px] rounded-card border border-line bg-surface p-6">
+        <Wordmark />
+        <h1 className="mt-6 text-[20px] font-semibold">Não encontramos a sua loja</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          A conta entrou, mas a loja dela não está no banco. Isso acontece se a conta foi criada antes de o banco estar
+          pronto. Saia e crie a conta de novo com outro e-mail, ou fale com o suporte.
+        </p>
+        <button
+          type="button"
+          onClick={async () => {
+            await signOut();
+            router.replace("/entrar");
+          }}
+          className="mt-5 h-9 rounded-control bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover"
+        >
+          Sair da conta
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -154,8 +184,8 @@ function Frame({
   const waiting = db.orders.filter((o) => o.storeId === store.id && o.status === "novo").length;
   const current = NAV.find((n) => (n.href === "/painel" ? pathname === "/painel" : pathname.startsWith(n.href)));
 
-  const logout = () => {
-    signOut();
+  const logout = async () => {
+    await signOut();
     router.replace("/entrar");
   };
 

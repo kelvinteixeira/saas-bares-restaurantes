@@ -12,7 +12,7 @@ import { StorageFullError } from "@/lib/store/db";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Switch, Textarea, inputClass } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
-import { useToast } from "@/components/ui/toast";
+import { attempt, useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 
 interface DraftOption {
@@ -105,11 +105,14 @@ export function ProductEditor({
   categories,
   isNew,
   onDone,
+  showTitle = true,
 }: {
   product: Product;
   categories: Category[];
   isNew: boolean;
   onDone: () => void;
+  /** Na janela do celular o título já vem no topo dela. */
+  showTitle?: boolean;
 }) {
   const toast = useToast();
   const [draft, setDraft] = useState<Draft>(() => toDraft(product));
@@ -117,6 +120,9 @@ export function ProductEditor({
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const update = (change: (d: Draft) => Draft) => {
     setDraft((d) => change(d));
@@ -127,55 +133,80 @@ export function ProductEditor({
 
   async function onPickImage(file: File | undefined) {
     if (!file) return;
+    setImageBusy(true);
     try {
       const dataUrl = await resizeImage(file);
       update((d) => ({ ...d, image: dataUrl }));
     } catch (err) {
       toast(err instanceof Error ? err.message : "Não foi possível usar esta imagem.", "negative");
+    } finally {
+      setImageBusy(false);
     }
   }
 
-  function save() {
+  async function save() {
     const { product: next, errors: errs } = fromDraft(draft, product);
     setErrors(errs);
     if (!next) {
       toast("Confira os campos marcados.", "negative");
       return;
     }
+    setSaving(true);
     try {
-      saveProduct(next);
+      await saveProduct(next);
       setDirty(false);
       toast(isNew ? "Item criado" : "Alterações salvas");
       if (isNew) onDone();
     } catch (err) {
-      toast(err instanceof StorageFullError ? err.message : "Não foi possível salvar.", "negative");
+      toast(err instanceof StorageFullError || err instanceof Error ? err.message : "Não foi possível salvar.", "negative");
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold">{isNew ? "Novo item" : "Editar item"}</h2>
+        {showTitle && <h2 className="text-base font-semibold">{isNew ? "Novo item" : "Editar item"}</h2>}
         {dirty && <span className="text-xs text-warning">Alterações não salvas</span>}
       </div>
 
-      <div className="flex items-start gap-4">
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="group relative grid size-24 flex-none place-items-center overflow-hidden rounded-card border border-dashed border-control bg-raised text-muted hover:border-ink hover:text-ink"
-          aria-label={draft.image ? "Trocar foto" : "Enviar foto"}
+      {/* Foto: área grande, no mesmo formato que o cliente vê no topo do item. Aceita clicar ou arrastar. */}
+      <div>
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            void onPickImage(e.dataTransfer.files?.[0]);
+          }}
+          className={cn(
+            "relative aspect-[4/3] w-full overflow-hidden rounded-card border border-dashed bg-raised transition-colors",
+            dragOver ? "border-accent bg-accent-soft" : "border-control",
+          )}
         >
           {draft.image ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={draft.image} alt="" className="size-full object-cover" />
+            <img src={draft.image} alt={`Foto de ${draft.name || "item"}`} className="size-full object-cover" />
           ) : (
-            <span className="flex flex-col items-center gap-1 text-xs">
-              <ImagePlus className="size-5" strokeWidth={1.5} aria-hidden="true" />
-              Foto
-            </span>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex size-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted hover:text-ink"
+            >
+              <ImagePlus className="size-7" strokeWidth={1.5} aria-hidden="true" />
+              <span className="font-medium text-ink">{imageBusy ? "Preparando foto…" : "Enviar foto do item"}</span>
+              <span>Clique ou arraste a imagem aqui. Item com foto vende mais no cardápio.</span>
+            </button>
           )}
-        </button>
+          {imageBusy && draft.image && (
+            <span className="absolute inset-0 grid place-items-center bg-surface/70 text-sm font-medium">Preparando foto…</span>
+          )}
+        </div>
         <input
           ref={fileRef}
           type="file"
@@ -187,16 +218,17 @@ export function ProductEditor({
             e.target.value = "";
           }}
         />
-        <div className="flex flex-1 flex-col gap-1.5 pt-1 text-sm">
-          <p className="text-muted">JPG, PNG ou WebP. A foto é reduzida para 800 px antes de salvar.</p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted">JPG, PNG ou WebP. A foto é reduzida para 800 px antes de salvar.</p>
           {draft.image && (
-            <button
-              type="button"
-              onClick={() => update((d) => ({ ...d, image: undefined }))}
-              className="w-fit text-sm font-medium text-negative hover:underline"
-            >
-              Remover foto
-            </button>
+            <span className="flex gap-1">
+              <Button size="sm" onClick={() => fileRef.current?.click()}>
+                Trocar foto
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => update((d) => ({ ...d, image: undefined }))}>
+                Remover
+              </Button>
+            </span>
           )}
         </div>
       </div>
@@ -394,8 +426,8 @@ export function ProductEditor({
       </div>
 
       <div className="sticky bottom-0 -mx-5 mt-2 flex items-center gap-2 border-t border-rule bg-surface px-5 py-3">
-        <Button variant="primary" onClick={save} className="flex-1">
-          {isNew ? "Criar item" : "Salvar alterações"}
+        <Button variant="primary" onClick={() => void save()} disabled={saving || imageBusy} className="flex-1">
+          {saving ? "Salvando…" : isNew ? "Criar item" : "Salvar alterações"}
         </Button>
         <Button onClick={onDone}>{dirty ? "Descartar" : "Fechar"}</Button>
         {!isNew && (
@@ -414,11 +446,10 @@ export function ProductEditor({
             <Button onClick={() => setConfirmDelete(false)}>Manter</Button>
             <Button
               variant="danger"
-              onClick={() => {
-                deleteProduct(product.id);
+              onClick={async () => {
                 setConfirmDelete(false);
-                toast("Item apagado");
-                onDone();
+                const done = await attempt(toast, () => deleteProduct(product.id).then(() => true), "Item apagado");
+                if (done) onDone();
               }}
             >
               Apagar item

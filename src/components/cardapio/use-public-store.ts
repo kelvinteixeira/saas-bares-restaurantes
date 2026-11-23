@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { Category, Product, Store } from "@/lib/types";
-import { useDb } from "@/lib/store/db";
+import { getRemote, useDb } from "@/lib/store/db";
 import { storeBySlug } from "@/lib/store/actions";
+import { loadPublicStore, remotePending } from "@/lib/store/remote";
 
 export type PublicStore =
   | { state: "loading" }
@@ -13,10 +14,17 @@ export type PublicStore =
 /** A loja como o cliente vê: só categorias visíveis e com itens, na ordem do dono. */
 export function usePublicStore(slug: string): PublicStore {
   const db = useDb();
+
+  // Lojas do Supabase: busca pelo endereço (a demonstração local já está no navegador).
+  useEffect(() => {
+    void loadPublicStore(slug);
+  }, [slug]);
+
   return useMemo<PublicStore>(() => {
     if (!db) return { state: "loading" };
     const store = storeBySlug(db, slug);
-    if (!store) return { state: "missing" };
+    // Só diz "não encontrado" depois que a busca no servidor terminou.
+    if (!store) return remotePending(getRemote(), "slug", slug) ? { state: "loading" } : { state: "missing" };
     const products = db.products
       .filter((p) => p.storeId === store.id)
       .sort((a, b) => a.position - b.position);
