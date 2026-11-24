@@ -219,7 +219,12 @@ function OrderRow({
       </span>
       <span className="col-span-2 min-w-0 sm:col-span-1">
         <span className="block truncate text-sm font-medium">
-          {order.customer.name} <span className="font-normal text-muted">· {where}</span>
+          {/* Pedido do garçom ou do PDV na mesa já se chama "Mesa N": não repete. */}
+          {order.customer.name === where ? where : (
+            <>
+              {order.customer.name} <span className="font-normal text-muted">· {where}</span>
+            </>
+          )}
         </span>
         <span className="block truncate text-[13px] text-muted">{summary}</span>
       </span>

@@ -12,6 +12,7 @@ import {
   QrCode,
   ReceiptText,
   Settings,
+  ShoppingBasket,
   Users,
   UtensilsCrossed,
   Volume2,
@@ -33,6 +34,7 @@ import { ROLE_LABEL, canManageStore, canSee, homeFor } from "@/lib/domain/roles"
 const NAV = [
   { href: "/painel", label: "Visão geral", icon: House },
   { href: "/painel/pedidos", label: "Pedidos", icon: ReceiptText },
+  { href: "/painel/pdv", label: "PDV", icon: ShoppingBasket },
   { href: "/painel/cozinha", label: "Tela de preparo", icon: ChefHat },
   { href: "/painel/cardapio", label: "Cardápio", icon: UtensilsCrossed },
   { href: "/painel/mesas", label: "Mesas", icon: QrCode },

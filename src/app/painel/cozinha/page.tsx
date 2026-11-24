@@ -202,7 +202,9 @@ function Ticket({
   const where =
     order.mode === "table"
       ? `Mesa ${order.tableNumber ?? "?"}`
-      : `${order.mode === "pickup" ? "Retirada" : "Entrega"} · ${order.customer.name}`;
+      : order.mode === "pickup" && order.customer.name === "Balcão"
+        ? "Balcão"
+        : `${order.mode === "pickup" ? "Retirada" : "Entrega"} · ${order.customer.name}`;
 
   return (
     <li
