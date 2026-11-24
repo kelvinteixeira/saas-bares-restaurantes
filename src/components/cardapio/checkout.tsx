@@ -15,6 +15,7 @@ import { isStoreOpen, storeStatus } from "@/lib/domain/hours";
 import { deliveryFee } from "@/lib/domain/pricing";
 import { formatMoney, formatPhone, onlyDigits, parseMoney } from "@/lib/format";
 import { CheckoutError, placeOrder } from "@/lib/store/actions";
+import { checkCoupon } from "@/lib/store/coupons";
 import { StorageFullError } from "@/lib/store/db";
 import { cn } from "@/lib/cn";
 
@@ -51,6 +52,11 @@ export function Checkout({ slug }: { slug: string }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [couponText, setCouponText] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discount: number; key: string } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   // Preenche com os dados do último pedido feito neste aparelho.
   useEffect(() => {
@@ -82,13 +88,31 @@ export function Checkout({ slug }: { slug: string }) {
   const payments = PAYMENTS.filter((p) => store.payment[p.id]);
   const subtotal = cartSubtotal(cart.lines, products);
   const fee = mode === "delivery" ? deliveryFee(store, form.regionId) : 0;
-  const total = subtotal + (fee ?? 0);
+  // O desconto foi conferido para esta sacola, modalidade e bairro; se algo mudar, confere de novo.
+  const couponKey = `${subtotal}|${fee ?? 0}|${mode}|${onlyDigits(form.phone)}`;
+  const discount = coupon && coupon.key === couponKey ? coupon.discount : 0;
+  const total = subtotal + (fee ?? 0) - discount;
   const open = isStoreOpen(store, now);
   const belowMinimum = mode === "delivery" && subtotal < store.delivery.minOrder;
   // Item que esgotou ou saiu do cardápio depois de ir para a sacola.
   const unavailable = cart.lines.some((l) => !products.find((p) => p.id === l.productId)?.available);
   const set = (key: keyof CustomerForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: key === "phone" ? onlyDigits(e.target.value) : e.target.value }));
+
+  async function applyCoupon(code: string) {
+    if (!mode) return;
+    setChecking(true);
+    setCouponError(null);
+    try {
+      const result = await checkCoupon(store.id, code, { subtotal, fee: fee ?? 0, mode, phone: onlyDigits(form.phone) });
+      setCoupon({ ...result, key: couponKey });
+      setCouponText(result.code);
+    } catch (err) {
+      setCoupon(null);
+      setCouponError(err instanceof Error && err.message ? err.message : "Não foi possível conferir o cupom.");
+    }
+    setChecking(false);
+  }
 
   function validate() {
     const next: Record<string, string> = {};
@@ -144,6 +168,7 @@ export function Checkout({ slug }: { slug: string }) {
         tableNumber: mode === "table" ? cart.table ?? undefined : undefined,
         payment: payment === "cash" && changeText.trim() ? { method: "cash", changeFor: parseMoney(changeText)! } : { method: payment },
         notes: notes.trim() || undefined,
+        couponCode: coupon?.code,
       });
       try {
         window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(form));
@@ -395,11 +420,79 @@ export function Checkout({ slug }: { slug: string }) {
                     <dd className="num">{fee === null ? "escolha o bairro" : formatMoney(fee)}</dd>
                   </div>
                 )}
+                {coupon && discount > 0 && (
+                  <div className="flex justify-between py-0.5 text-positive">
+                    <dt>Cupom {coupon.code}</dt>
+                    <dd className="num">−{formatMoney(discount)}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between pt-2 text-[17px] font-semibold">
                   <dt>Total</dt>
                   <dd className="num">{formatMoney(total)}</dd>
                 </div>
               </dl>
+              <div className="mt-3 border-t border-rule pt-3">
+                {/* Cupom aplicado e a sacola mudou: confere de novo com os valores novos. */}
+                {coupon && coupon.key !== couponKey && !checking && <Recheck run={() => void applyCoupon(coupon.code)} />}
+                {coupon ? (
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span>
+                      Cupom <strong>{coupon.code}</strong> aplicado
+                    </span>
+                    <button
+                      type="button"
+                      className="text-muted underline hover:text-ink"
+                      onClick={() => {
+                        setCoupon(null);
+                        setCouponText("");
+                      }}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ) : couponOpen ? (
+                  <div>
+                    <label htmlFor="cupom" className="text-sm font-medium">
+                      Cupom de desconto
+                    </label>
+                    <div className="mt-2 flex gap-2">
+                      <Input
+                        id="cupom"
+                        autoFocus
+                        autoCapitalize="characters"
+                        autoComplete="off"
+                        maxLength={20}
+                        value={couponText}
+                        aria-invalid={couponError ? true : undefined}
+                        onChange={(e) => {
+                          setCouponText(e.target.value.toUpperCase().replace(/\s/g, ""));
+                          setCouponError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            if (couponText.trim()) void applyCoupon(couponText);
+                          }
+                        }}
+                        className="h-11 uppercase"
+                      />
+                      <button
+                        type="button"
+                        disabled={!couponText.trim() || checking || !mode}
+                        onClick={() => void applyCoupon(couponText)}
+                        className="h-11 flex-none rounded-control border border-control px-4 text-sm font-medium hover:bg-raised disabled:opacity-50"
+                      >
+                        {checking ? "Conferindo…" : "Aplicar"}
+                      </button>
+                    </div>
+                    {couponError && <p className="mt-2 text-sm text-negative">{couponError}</p>}
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setCouponOpen(true)} className="text-sm font-medium text-[var(--brand)] hover:underline">
+                    Tem cupom de desconto?
+                  </button>
+                )}
+              </div>
               {belowMinimum && (
                 <p className="mt-3 text-sm text-negative">
                   Faltam {formatMoney(store.delivery.minOrder - subtotal)} para o pedido mínimo de entrega.
@@ -427,4 +520,14 @@ export function Checkout({ slug }: { slug: string }) {
       </div>
     </BrandScope>
   );
+}
+
+/** Roda a nova conferência do cupom depois de desenhar (efeito, não durante o render). */
+function Recheck({ run }: { run: () => void }) {
+  useEffect(() => {
+    run();
+    // Só uma vez por montagem: o pai desmonta este componente quando a conferência começa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
 }

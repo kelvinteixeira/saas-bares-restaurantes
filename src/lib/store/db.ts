@@ -10,7 +10,7 @@
 // A sessão remota tem prioridade sobre a local.
 
 import { useSyncExternalStore } from "react";
-import type { Account, CashMovement, CashSession, Category, Db, Order, Payment, Product, Store, Tab } from "@/lib/types";
+import type { Account, CashMovement, CashSession, Category, Coupon, Db, Order, Payment, Product, Store, Tab } from "@/lib/types";
 import { buildDemoDb, demoProducts, DEMO_STORE_ID, tabsForOpenTableOrders } from "@/lib/seed";
 import { supabaseConfigured } from "@/lib/supabase/client";
 
@@ -26,6 +26,7 @@ export interface RemoteState {
   cashSessions: CashSession[];
   payments: Payment[];
   cashMovements: CashMovement[];
+  coupons: Coupon[];
   /** Lojas públicas buscadas por endereço: "loading" ou "done" (achada ou não). */
   slugState: Record<string, "loading" | "done">;
   /** Pedidos buscados para acompanhamento: "loading" ou "done". */
@@ -33,7 +34,7 @@ export interface RemoteState {
 }
 
 export function emptyRemote(authResolved: boolean): RemoteState {
-  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], cashSessions: [], payments: [], cashMovements: [], slugState: {}, orderState: {} };
+  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], cashSessions: [], payments: [], cashMovements: [], coupons: [], slugState: {}, orderState: {} };
 }
 
 let remote: RemoteState = emptyRemote(!supabaseConfigured());
@@ -180,6 +181,7 @@ function read(): Db {
     cashSessions: [...(local.cashSessions ?? []), ...remote.cashSessions],
     payments: [...(local.payments ?? []), ...remote.payments],
     cashMovements: [...(local.cashMovements ?? []), ...remote.cashMovements],
+    coupons: [...(local.coupons ?? []), ...remote.coupons],
   };
   return merged;
 }
@@ -260,6 +262,7 @@ export function resetDemoData() {
     cashSessions: (current.cashSessions ?? []).filter((s) => ownIds.has(s.storeId)),
     payments: (current.payments ?? []).filter((p) => ownIds.has(p.storeId)),
     cashMovements: (current.cashMovements ?? []).filter((m) => ownIds.has(m.storeId)),
+    coupons: (current.coupons ?? []).filter((c) => ownIds.has(c.storeId)),
   };
   write(next);
   cache = next;

@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { CashMovement, CashSession, Category, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
+import type { CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -70,6 +70,10 @@ export interface OrderRow {
   tab_id?: string | null;
   source?: Order["source"];
   created_by?: string | null;
+  /** Colunas do SQL 006. */
+  discount?: number;
+  coupon_id?: string | null;
+  coupon_code?: string | null;
 }
 
 function toHours(raw: StoreRow["hours"]): WeeklyHours {
@@ -186,6 +190,9 @@ export function rowToOrder(r: OrderRow): Order {
     tabId: r.tab_id ?? undefined,
     source: r.source ?? undefined,
     createdBy: r.created_by ?? undefined,
+    discount: r.discount || undefined,
+    couponId: r.coupon_id ?? undefined,
+    couponCode: r.coupon_code ?? undefined,
   };
 }
 
@@ -325,5 +332,55 @@ export function rowToCashMovement(r: CashMovementRow): CashMovement {
     reason: r.reason,
     createdBy: r.created_by ?? undefined,
     createdAt: r.created_at,
+  };
+}
+
+// ---------- cupons (SQL 006) ----------
+
+export interface CouponRow {
+  id: string;
+  store_id: string;
+  code: string;
+  kind: Coupon["kind"];
+  value: number;
+  min_order: number;
+  max_uses: number | null;
+  once_per_customer: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export function rowToCoupon(r: CouponRow): Coupon {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    code: r.code,
+    kind: r.kind,
+    value: r.value,
+    minOrder: r.min_order,
+    maxUses: r.max_uses ?? undefined,
+    oncePerCustomer: r.once_per_customer,
+    startsAt: r.starts_at ?? undefined,
+    endsAt: r.ends_at ?? undefined,
+    active: r.active,
+    createdAt: r.created_at,
+  };
+}
+
+export function couponToRow(c: Coupon): Omit<CouponRow, "created_at"> {
+  return {
+    id: c.id,
+    store_id: c.storeId,
+    code: c.code,
+    kind: c.kind,
+    value: c.value,
+    min_order: c.minOrder,
+    max_uses: c.maxUses ?? null,
+    once_per_customer: c.oncePerCustomer,
+    starts_at: c.startsAt ?? null,
+    ends_at: c.endsAt ?? null,
+    active: c.active,
   };
 }

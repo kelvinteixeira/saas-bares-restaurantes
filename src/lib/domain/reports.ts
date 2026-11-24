@@ -44,6 +44,8 @@ export interface SalesReport {
   /** Soma dos pedidos (itens + entrega), sem a taxa de serviço. */
   revenue: number;
   ticket: number;
+  /** Descontos de cupom já abatidos das vendas. */
+  discounts: number;
   cancelled: ChannelLine;
   byMode: Record<OrderMode, ChannelLine>;
   /** Taxa de serviço das mesas fechadas no período. */
@@ -108,6 +110,7 @@ export function salesReport(
     count: valid.length,
     revenue,
     ticket: valid.length ? Math.round(revenue / valid.length) : 0,
+    discounts: valid.reduce((s, o) => s + (o.discount ?? 0), 0),
     cancelled: { count: cancelledList.length, revenue: cancelledList.reduce((s, o) => s + o.total, 0) },
     byMode,
     serviceFee,

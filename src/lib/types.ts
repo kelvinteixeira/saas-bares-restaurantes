@@ -172,6 +172,28 @@ export interface Order {
   source?: OrderSource;
   /** Quem da equipe lançou (garçom, PDV). */
   createdBy?: string;
+  /** Desconto do cupom (centavos), já abatido do total. */
+  discount?: number;
+  couponId?: string;
+  couponCode?: string;
+}
+
+export type CouponKind = "percent" | "fixed" | "free_delivery";
+
+/** Cupom de desconto do cardápio. value: 1–100 no percent; centavos no fixed; 0 na entrega grátis. */
+export interface Coupon {
+  id: string;
+  storeId: string;
+  code: string;
+  kind: CouponKind;
+  value: number;
+  minOrder: number;
+  maxUses?: number;
+  oncePerCustomer: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  active: boolean;
+  createdAt: string;
 }
 
 export type TabStatus = "open" | "bill_requested" | "closed";
@@ -290,4 +312,5 @@ export interface Db {
   cashSessions?: CashSession[];
   payments?: Payment[];
   cashMovements?: CashMovement[];
+  coupons?: Coupon[];
 }

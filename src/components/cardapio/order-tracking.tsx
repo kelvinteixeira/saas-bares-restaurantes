@@ -148,6 +148,12 @@ export function OrderTracking({ slug, id }: { slug: string; id: string }) {
                 <dd className="num">{formatMoney(order.deliveryFee)}</dd>
               </div>
             )}
+            {(order.discount ?? 0) > 0 && (
+              <div className="flex justify-between py-0.5 text-positive">
+                <dt>Cupom {order.couponCode}</dt>
+                <dd className="num">−{formatMoney(order.discount!)}</dd>
+              </div>
+            )}
             <div className="flex justify-between py-0.5 font-semibold">
               <dt>Total</dt>
               <dd className="num">{formatMoney(order.total)}</dd>

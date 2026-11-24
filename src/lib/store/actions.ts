@@ -8,6 +8,7 @@
 import type {
   Account,
   Category,
+  Coupon,
   Db,
   ManualStatus,
   Order,
@@ -25,6 +26,7 @@ import { onlyDigits } from "@/lib/format";
 import { buildOrderItem, demoCategories, demoProducts, demoStore, randomOrder } from "@/lib/seed";
 import { isStoreOpen } from "@/lib/domain/hours";
 import { attachToTab } from "@/lib/domain/tabs";
+import { evaluateCoupon, normalizeCode } from "@/lib/domain/coupons";
 import { getSupabase } from "@/lib/supabase/client";
 import {
   friendly,
@@ -377,6 +379,8 @@ export interface CheckoutInput {
   tableNumber?: number;
   payment: { method: PaymentMethod; changeFor?: number };
   notes?: string;
+  /** Código de cupom digitado no checkout. */
+  couponCode?: string;
 }
 
 export class CheckoutError extends Error {}
@@ -476,7 +480,19 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     throw new CheckoutError("Mesa inválida. Leia o QR code da mesa de novo.");
   }
 
-  const total = subtotal + fee;
+  // Cupom: mesmas regras de coupon_discount no banco.
+  let discount = 0;
+  let coupon: Coupon | undefined;
+  if (input.couponCode?.trim()) {
+    coupon = (db.coupons ?? []).find((c) => c.storeId === store.id && c.code === normalizeCode(input.couponCode!));
+    try {
+      discount = evaluateCoupon(coupon, { subtotal, fee, mode: input.mode, phone: customerPhone, now, orders: db.orders });
+    } catch (err) {
+      throw new CheckoutError(err instanceof Error ? err.message : "Cupom inválido.");
+    }
+  }
+
+  const total = subtotal + fee - discount;
   if (input.payment.method === "cash" && input.payment.changeFor !== undefined && input.payment.changeFor < total) {
     throw new CheckoutError("O troco precisa ser maior ou igual ao total do pedido.");
   }
@@ -500,6 +516,7 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     payment: input.payment.method === "cash" ? input.payment : { method: input.payment.method },
     notes: input.notes?.trim() || undefined,
     source: "cliente",
+    ...(coupon && { discount, couponId: coupon.id, couponCode: coupon.code }),
   };
   db.tabs ??= [];
   attachToTab(db.tabs, order, store, newId);

@@ -35,7 +35,7 @@ export interface TabTotals {
 export function tabTotals(tab: Pick<Tab, "id" | "serviceFeeRate" | "serviceFeeRemoved">, orders: Order[], removeFee = tab.serviceFeeRemoved): TabTotals {
   const consumption = tabOrders(tab, orders)
     .filter((o) => o.status !== "cancelado")
-    .reduce((sum, o) => sum + o.subtotal, 0);
+    .reduce((sum, o) => sum + o.subtotal - (o.discount ?? 0), 0);
   const rate = removeFee ? 0 : tab.serviceFeeRate;
   const fee = Math.round((consumption * rate) / 100);
   return { consumption, rate, fee, total: consumption + fee };

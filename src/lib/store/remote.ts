@@ -7,7 +7,7 @@
 // - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
 
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import type { Account, CashMovement, CashSession, Category, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
+import type { Account, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
 import {
@@ -17,6 +17,8 @@ import {
   rowToStore,
   rowToTab,
   rowToCashMovement,
+  rowToCoupon,
+  type CouponRow,
   rowToCashSession,
   rowToPayment,
   type CashMovementRow,
@@ -62,6 +64,12 @@ export function remoteUpsertOrder(order: Order) {
 }
 export function remoteUpsertTab(tab: Tab) {
   setRemote((r) => ({ ...r, tabs: upsertById(r.tabs, tab) }));
+}
+export function remoteUpsertCoupon(coupon: Coupon) {
+  setRemote((r) => ({ ...r, coupons: upsertById(r.coupons, coupon) }));
+}
+export function remoteRemoveCoupon(id: string) {
+  setRemote((r) => ({ ...r, coupons: r.coupons.filter((c) => c.id !== id) }));
 }
 export function remoteUpsertCashSession(session: CashSession) {
   setRemote((r) => ({ ...r, cashSessions: upsertById(r.cashSessions, session) }));
@@ -202,6 +210,9 @@ async function fetchOwner(user: User) {
     const cashSessions = hasCash ? ((sessionsRes.data ?? []) as CashSessionRow[]).map(rowToCashSession) : [];
     const payments = paymentsRes.error ? [] : ((paymentsRes.data ?? []) as PaymentRow[]).map(rowToPayment);
     const cashMovements = movesRes.error ? [] : ((movesRes.data ?? []) as CashMovementRow[]).map(rowToCashMovement);
+    // Cupons (SQL 006): só dono e gerente leem; os outros recebem vazio.
+    const couponsRes = await sb.from("coupons").select("*").eq("store_id", store.id).order("created_at", { ascending: false });
+    const coupons = couponsRes.error ? [] : ((couponsRes.data ?? []) as CouponRow[]).map(rowToCoupon);
 
     setRemote((r) => ({
       ...r,
@@ -214,6 +225,7 @@ async function fetchOwner(user: User) {
       cashSessions: replaceForStore(r.cashSessions, store.id, cashSessions),
       payments: replaceForStore(r.payments, store.id, payments),
       cashMovements: replaceForStore(r.cashMovements, store.id, cashMovements),
+      coupons: replaceForStore(r.coupons, store.id, coupons),
       slugState: { ...r.slugState, [store.slug]: "done" },
     }));
     subscribeOrders(store.id, !tabsRes.error, hasCash);
