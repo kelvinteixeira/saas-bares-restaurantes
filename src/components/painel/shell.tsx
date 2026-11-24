@@ -16,6 +16,7 @@ import {
   Users,
   UtensilsCrossed,
   Volume2,
+  Wallet,
   VolumeX,
   X,
 } from "lucide-react";
@@ -35,6 +36,7 @@ const NAV = [
   { href: "/painel", label: "Visão geral", icon: House },
   { href: "/painel/pedidos", label: "Pedidos", icon: ReceiptText },
   { href: "/painel/pdv", label: "PDV", icon: ShoppingBasket },
+  { href: "/painel/caixa", label: "Caixa", icon: Wallet },
   { href: "/painel/cozinha", label: "Tela de preparo", icon: ChefHat },
   { href: "/painel/cardapio", label: "Cardápio", icon: UtensilsCrossed },
   { href: "/painel/mesas", label: "Mesas", icon: QrCode },

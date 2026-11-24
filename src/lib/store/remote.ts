@@ -7,7 +7,7 @@
 // - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
 
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import type { Account, Category, Order, Product, Store, StoreRole, Tab } from "@/lib/types";
+import type { Account, CashMovement, CashSession, Category, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
 import {
@@ -16,6 +16,12 @@ import {
   rowToProduct,
   rowToStore,
   rowToTab,
+  rowToCashMovement,
+  rowToCashSession,
+  rowToPayment,
+  type CashMovementRow,
+  type CashSessionRow,
+  type PaymentRow,
   type CategoryRow,
   type OrderRow,
   type ProductRow,
@@ -56,6 +62,15 @@ export function remoteUpsertOrder(order: Order) {
 }
 export function remoteUpsertTab(tab: Tab) {
   setRemote((r) => ({ ...r, tabs: upsertById(r.tabs, tab) }));
+}
+export function remoteUpsertCashSession(session: CashSession) {
+  setRemote((r) => ({ ...r, cashSessions: upsertById(r.cashSessions, session) }));
+}
+export function remoteUpsertPayment(payment: Payment) {
+  setRemote((r) => ({ ...r, payments: upsertById(r.payments, payment) }));
+}
+export function remoteUpsertCashMovement(movement: CashMovement) {
+  setRemote((r) => ({ ...r, cashMovements: upsertById(r.cashMovements, movement) }));
 }
 export function remoteUpsertOrders(orders: Order[]) {
   setRemote((r) => ({ ...r, orders: orders.reduce((list, o) => upsertById(list, o), r.orders) }));
@@ -177,6 +192,16 @@ async function fetchOwner(user: User) {
     // Comandas abertas e as fechadas nos últimos dias. Antes do SQL 003 a tabela não existe: segue sem.
     const tabsRes = await sb.from("tabs").select("*").eq("store_id", store.id).or(`status.neq.closed,opened_at.gte.${since}`);
     const tabs = tabsRes.error ? [] : ((tabsRes.data ?? []) as TabRow[]).map(rowToTab);
+    // Caixa (SQL 005): turnos dos últimos dias, pagamentos e movimentos. Garçom e cozinha recebem vazio (RLS).
+    const [sessionsRes, paymentsRes, movesRes] = await Promise.all([
+      sb.from("cash_sessions").select("*").eq("store_id", store.id).or(`status.eq.open,opened_at.gte.${since}`),
+      sb.from("payments").select("*").eq("store_id", store.id).gte("created_at", since),
+      sb.from("cash_movements").select("*").eq("store_id", store.id).gte("created_at", since),
+    ]);
+    const hasCash = !sessionsRes.error;
+    const cashSessions = hasCash ? ((sessionsRes.data ?? []) as CashSessionRow[]).map(rowToCashSession) : [];
+    const payments = paymentsRes.error ? [] : ((paymentsRes.data ?? []) as PaymentRow[]).map(rowToPayment);
+    const cashMovements = movesRes.error ? [] : ((movesRes.data ?? []) as CashMovementRow[]).map(rowToCashMovement);
 
     setRemote((r) => ({
       ...r,
@@ -186,14 +211,17 @@ async function fetchOwner(user: User) {
       products: replaceForStore(r.products, store.id, ((prods.data ?? []) as ProductRow[]).map(rowToProduct)),
       orders: replaceForStore(r.orders, store.id, [...orders.values()]),
       tabs: replaceForStore(r.tabs, store.id, tabs),
+      cashSessions: replaceForStore(r.cashSessions, store.id, cashSessions),
+      payments: replaceForStore(r.payments, store.id, payments),
+      cashMovements: replaceForStore(r.cashMovements, store.id, cashMovements),
       slugState: { ...r.slugState, [store.slug]: "done" },
     }));
-    subscribeOrders(store.id, !tabsRes.error);
+    subscribeOrders(store.id, !tabsRes.error, hasCash);
   }
 }
 
 /** Pedidos novos e mudanças de status chegam na hora (Realtime respeita as regras de acesso). */
-function subscribeOrders(storeId: string, withTabs: boolean) {
+function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean) {
   const sb = getSupabase();
   if (ordersChannel) void ordersChannel.unsubscribe();
   const channel = sb
@@ -220,6 +248,19 @@ function subscribeOrders(storeId: string, withTabs: boolean) {
         remoteUpsertTab(rowToTab(payload.new as TabRow));
       },
     );
+  }
+  // Caixa só se as tabelas existem (SQL 005).
+  if (withCash) {
+    channel
+      .on("postgres_changes", { event: "*", schema: "public", table: "cash_sessions", filter: `store_id=eq.${storeId}` }, (payload) => {
+        if (payload.eventType !== "DELETE") remoteUpsertCashSession(rowToCashSession(payload.new as CashSessionRow));
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "payments", filter: `store_id=eq.${storeId}` }, (payload) => {
+        remoteUpsertPayment(rowToPayment(payload.new as PaymentRow));
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "cash_movements", filter: `store_id=eq.${storeId}` }, (payload) => {
+        remoteUpsertCashMovement(rowToCashMovement(payload.new as CashMovementRow));
+      });
   }
   ordersChannel = channel.subscribe();
 }

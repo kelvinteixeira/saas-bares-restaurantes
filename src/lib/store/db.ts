@@ -10,7 +10,7 @@
 // A sessão remota tem prioridade sobre a local.
 
 import { useSyncExternalStore } from "react";
-import type { Account, Category, Db, Order, Product, Store, Tab } from "@/lib/types";
+import type { Account, CashMovement, CashSession, Category, Db, Order, Payment, Product, Store, Tab } from "@/lib/types";
 import { buildDemoDb, demoProducts, DEMO_STORE_ID, tabsForOpenTableOrders } from "@/lib/seed";
 import { supabaseConfigured } from "@/lib/supabase/client";
 
@@ -23,6 +23,9 @@ export interface RemoteState {
   products: Product[];
   orders: Order[];
   tabs: Tab[];
+  cashSessions: CashSession[];
+  payments: Payment[];
+  cashMovements: CashMovement[];
   /** Lojas públicas buscadas por endereço: "loading" ou "done" (achada ou não). */
   slugState: Record<string, "loading" | "done">;
   /** Pedidos buscados para acompanhamento: "loading" ou "done". */
@@ -30,7 +33,7 @@ export interface RemoteState {
 }
 
 export function emptyRemote(authResolved: boolean): RemoteState {
-  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], slugState: {}, orderState: {} };
+  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], cashSessions: [], payments: [], cashMovements: [], slugState: {}, orderState: {} };
 }
 
 let remote: RemoteState = emptyRemote(!supabaseConfigured());
@@ -174,6 +177,9 @@ function read(): Db {
     products: [...local.products, ...remote.products],
     orders: [...local.orders, ...remote.orders],
     tabs: [...(local.tabs ?? []), ...remote.tabs],
+    cashSessions: [...(local.cashSessions ?? []), ...remote.cashSessions],
+    payments: [...(local.payments ?? []), ...remote.payments],
+    cashMovements: [...(local.cashMovements ?? []), ...remote.cashMovements],
   };
   return merged;
 }
@@ -251,6 +257,9 @@ export function resetDemoData() {
     products: [...fresh.products, ...current.products.filter((p) => ownIds.has(p.storeId))],
     orders: [...fresh.orders, ...current.orders.filter((o) => ownIds.has(o.storeId))],
     tabs: [...(fresh.tabs ?? []), ...(current.tabs ?? []).filter((t) => ownIds.has(t.storeId))],
+    cashSessions: (current.cashSessions ?? []).filter((s) => ownIds.has(s.storeId)),
+    payments: (current.payments ?? []).filter((p) => ownIds.has(p.storeId)),
+    cashMovements: (current.cashMovements ?? []).filter((m) => ownIds.has(m.storeId)),
   };
   write(next);
   cache = next;

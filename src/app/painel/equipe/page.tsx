@@ -370,7 +370,7 @@ function InviteModal({
               type="email"
               autoComplete="off"
               required
-              autoFocus
+              data-autofocus
               placeholder="nome@exemplo.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

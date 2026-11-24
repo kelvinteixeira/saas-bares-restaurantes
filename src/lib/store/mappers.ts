@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { Category, Order, Product, Store, Tab, WeeklyHours } from "@/lib/types";
+import type { CashMovement, CashSession, Category, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -241,5 +241,89 @@ export function rowToTab(r: TabRow): Tab {
     serviceFeeRate: r.service_fee_rate,
     serviceFeeRemoved: r.service_fee_removed,
     notes: r.notes ?? undefined,
+  };
+}
+
+// ---------- caixa (SQL 005) ----------
+
+export interface CashSessionRow {
+  id: string;
+  store_id: string;
+  status: CashSession["status"];
+  opened_by: string | null;
+  opened_at: string;
+  opening_amount: number;
+  closed_by: string | null;
+  closed_at: string | null;
+  counted_amount: number | null;
+  expected_amount: number | null;
+  notes: string | null;
+}
+
+export function rowToCashSession(r: CashSessionRow): CashSession {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    status: r.status,
+    openedBy: r.opened_by ?? undefined,
+    openedAt: r.opened_at,
+    openingAmount: r.opening_amount,
+    closedBy: r.closed_by ?? undefined,
+    closedAt: r.closed_at ?? undefined,
+    countedAmount: r.counted_amount ?? undefined,
+    expectedAmount: r.expected_amount ?? undefined,
+    notes: r.notes ?? undefined,
+  };
+}
+
+export interface PaymentRow {
+  id: string;
+  store_id: string;
+  cash_session_id: string;
+  tab_id: string | null;
+  order_id: string | null;
+  method: Payment["method"];
+  amount: number;
+  change_given: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export function rowToPayment(r: PaymentRow): Payment {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    cashSessionId: r.cash_session_id,
+    tabId: r.tab_id ?? undefined,
+    orderId: r.order_id ?? undefined,
+    method: r.method,
+    amount: r.amount,
+    changeGiven: r.change_given,
+    createdBy: r.created_by ?? undefined,
+    createdAt: r.created_at,
+  };
+}
+
+export interface CashMovementRow {
+  id: string;
+  store_id: string;
+  cash_session_id: string;
+  kind: CashMovement["kind"];
+  amount: number;
+  reason: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export function rowToCashMovement(r: CashMovementRow): CashMovement {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    cashSessionId: r.cash_session_id,
+    kind: r.kind,
+    amount: r.amount,
+    reason: r.reason,
+    createdBy: r.created_by ?? undefined,
+    createdAt: r.created_at,
   };
 }

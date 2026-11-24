@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRightLeft, Plus, ReceiptText } from "lucide-react";
 import type { Order, Store, Tab } from "@/lib/types";
 import { openTabFor, tableMap, tabOrders, tabTotals, unservedOrders } from "@/lib/domain/tabs";
+import { openSession, tabDue, tabPaid } from "@/lib/domain/cash";
+import { registerPayment, setTabServiceFee } from "@/lib/store/cash";
+import { CashClosedNotice, PaymentForm, PaymentList, type PayInput } from "@/components/painel/cash/payment-form";
 import { formatClock, formatDuration, formatMoney, formatOrderNumber } from "@/lib/format";
 import { advanceOrder } from "@/lib/store/actions";
 import { closeTab, requestBill, transferTab } from "@/lib/store/tabs";
@@ -55,6 +58,7 @@ export function TabScreen({ table }: { table: number }) {
   const totals = tab ? tabTotals(tab, db.orders) : null;
   const minutes = tab ? Math.max(0, Math.floor((now.getTime() - new Date(tab.openedAt).getTime()) / 60_000)) : 0;
   const bill = tab?.status === "bill_requested";
+  const paid = tab ? tabPaid(tab, db.payments ?? []) : 0;
 
   async function run(work: () => Promise<void>, success: string) {
     setBusy(true);
@@ -113,6 +117,18 @@ export function TabScreen({ table }: { table: number }) {
                   <dt className="text-[15px] font-semibold">Total</dt>
                   <dd className="num text-[22px] font-semibold">{formatMoney(totals!.total)}</dd>
                 </div>
+                {paid > 0 && (
+                  <>
+                    <div className="flex justify-between">
+                      <dt className="text-muted">Já recebido</dt>
+                      <dd className="num">{formatMoney(paid)}</dd>
+                    </div>
+                    <div className="flex justify-between font-medium">
+                      <dt>Falta receber</dt>
+                      <dd className="num">{formatMoney(Math.max(0, totals!.total - paid))}</dd>
+                    </div>
+                  </>
+                )}
               </dl>
             </div>
             <div className="hidden lg:block">
@@ -136,10 +152,10 @@ export function TabScreen({ table }: { table: number }) {
             </div>
             {canClose ? (
               <Button variant={bill ? "primary" : "secondary"} disabled={busy} onClick={() => setClosing(true)}>
-                Fechar conta
+                {paid > 0 ? "Receber o restante" : "Receber conta"}
               </Button>
             ) : (
-              <p className="text-xs leading-5 text-muted">Quem fecha a conta é o caixa, o gerente ou o dono.</p>
+              <p className="text-xs leading-5 text-muted">Quem recebe e fecha a conta é o caixa, o gerente ou o dono.</p>
             )}
           </aside>
         </div>
@@ -161,7 +177,7 @@ export function TabScreen({ table }: { table: number }) {
       )}
 
       {tab && transferring && <TransferModal tab={tab} store={store} onClose={() => setTransferring(false)} />}
-      {tab && closing && <CloseModal tab={tab} orders={db.orders} onClose={() => setClosing(false)} />}
+      {tab && closing && <ReceiveModal tab={tab} onClose={() => setClosing(false)} />}
     </div>
   );
 }
@@ -276,64 +292,105 @@ function TransferModal({ tab, store, onClose }: { tab: Tab; store: Store; onClos
   );
 }
 
-function CloseModal({ tab, orders, onClose }: { tab: Tab; orders: Order[]; onClose: () => void }) {
+function ReceiveModal({ tab, onClose }: { tab: Tab; onClose: () => void }) {
+  const { db, store } = usePainel();
   const toast = useToast();
   const router = useRouter();
-  const [removeFee, setRemoveFee] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const totals = tabTotals(tab, orders, removeFee);
-  const pending = unservedOrders(tab, orders);
+  const [busy, setBusy] = useState(false);
+  const live = (db.tabs ?? []).find((t) => t.id === tab.id) ?? tab;
+  const payments = (db.payments ?? []).filter((p) => p.tabId === tab.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const totals = tabTotals(live, db.orders);
+  const due = tabDue(live, db.orders, db.payments ?? []);
+  const pending = unservedOrders(live, db.orders);
+  const cashOpen = Boolean(openSession(db.cashSessions ?? [], store.id));
+  const feeFull = Math.round((totals.consumption * live.serviceFeeRate) / 100);
+
+  async function pay(input: PayInput) {
+    const result = await attempt(toast, () => registerPayment({ tabId: tab.id, ...input }));
+    if (!result) return false;
+    if (result.payment.changeGiven > 0) toast(`Troco: ${formatMoney(result.payment.changeGiven)}`);
+    if (result.tabClosed) {
+      toast(`Mesa ${live.tableNumber} paga e fechada`);
+      router.replace("/painel/mesas");
+    }
+    return true;
+  }
 
   return (
-    <Modal open title={`Fechar a conta da mesa ${tab.tableNumber}`} onClose={onClose}>
+    <Modal open title={`Conta da mesa ${live.tableNumber}`} onClose={onClose}>
       <div className="flex flex-col gap-4">
         <dl className="flex flex-col gap-2 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted">Consumo</dt>
             <dd className="num">{formatMoney(totals.consumption)}</dd>
           </div>
-          {tab.serviceFeeRate > 0 && (
+          {live.serviceFeeRate > 0 && (
             <div className="flex justify-between">
-              <dt className="text-muted">Taxa de serviço ({tab.serviceFeeRate}%)</dt>
-              <dd className={`num ${removeFee ? "text-muted line-through" : ""}`}>{formatMoney(Math.round((totals.consumption * tab.serviceFeeRate) / 100))}</dd>
+              <dt className="text-muted">Taxa de serviço ({live.serviceFeeRate}%)</dt>
+              <dd className={`num ${live.serviceFeeRemoved ? "text-muted line-through" : ""}`}>{formatMoney(feeFull)}</dd>
             </div>
           )}
-          <div className="flex items-baseline justify-between border-t border-line pt-3">
-            <dt className="text-[15px] font-semibold">Total a receber</dt>
-            <dd className="num text-[24px] font-semibold">{formatMoney(totals.total)}</dd>
+          <div className="flex justify-between border-t border-line pt-2">
+            <dt className="font-semibold">Total</dt>
+            <dd className="num font-semibold">{formatMoney(totals.total)}</dd>
           </div>
         </dl>
-        {tab.serviceFeeRate > 0 && (
+        {live.serviceFeeRate > 0 && (
           <label className="flex items-center gap-2.5 text-sm">
-            <input type="checkbox" checked={removeFee} onChange={(e) => setRemoveFee(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+            <input
+              type="checkbox"
+              checked={live.serviceFeeRemoved}
+              disabled={busy}
+              onChange={async (e) => {
+                setBusy(true);
+                await attempt(toast, () => setTabServiceFee(tab.id, e.target.checked));
+                setBusy(false);
+              }}
+              className="size-4 accent-[var(--color-accent)]"
+            />
             Tirar a taxa de serviço (o cliente pediu)
           </label>
         )}
+        {payments.length > 0 && (
+          <div className="rounded-[10px] bg-raised px-3 py-2.5">
+            <p className="mb-1.5 text-xs font-medium tracking-[0.06em] text-muted uppercase">Recebido</p>
+            <PaymentList payments={payments} />
+          </div>
+        )}
+        <div className="flex items-baseline justify-between">
+          <span className="text-[15px] font-semibold">{due > 0 ? "Falta receber" : "Conta paga"}</span>
+          <span className="num text-[26px] font-semibold">{formatMoney(Math.max(0, due))}</span>
+        </div>
         {pending.length > 0 && (
           <p className="rounded-[10px] bg-pill-warning-bg px-3 py-2 text-[13px] leading-5 text-pill-warning-ink">
-            {pending.length === 1 ? "1 pedido ainda não saiu" : `${pending.length} pedidos ainda não saíram`} da cozinha. Ao fechar, eles
-            ficam como servidos.
+            {pending.length === 1 ? "1 pedido ainda não saiu" : `${pending.length} pedidos ainda não saíram`} da cozinha. Quando a conta
+            fechar, eles ficam como servidos.
           </p>
         )}
-        <p className="text-xs leading-5 text-muted">O registro de como o cliente pagou (Pix, cartão, dinheiro e troco) chega com o caixa.</p>
-        <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Voltar</Button>
+        {due > 0 ? (
+          cashOpen ? (
+            <PaymentForm key={due} due={due} onPay={pay} />
+          ) : (
+            <CashClosedNotice />
+          )
+        ) : (
           <Button
             variant="primary"
-            disabled={saving}
+            size="lg"
+            disabled={busy}
             onClick={async () => {
-              setSaving(true);
+              setBusy(true);
               const ok = await attempt(toast, async () => {
-                await closeTab(tab.id, removeFee);
+                await closeTab(tab.id);
                 return true;
-              }, `Mesa ${tab.tableNumber} fechada · ${formatMoney(totals.total)}`);
-              setSaving(false);
+              }, `Mesa ${live.tableNumber} fechada`);
+              setBusy(false);
               if (ok) router.replace("/painel/mesas");
             }}
           >
-            {saving ? "Fechando…" : `Fechar conta · ${formatMoney(totals.total)}`}
+            Fechar a mesa
           </Button>
-        </div>
+        )}
       </div>
     </Modal>
   );

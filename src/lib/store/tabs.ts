@@ -7,6 +7,8 @@ import type { Db, Order, Store, Tab } from "@/lib/types";
 import type { CartLine } from "@/lib/domain/pricing";
 import { applyStatus } from "@/lib/domain/orders";
 import { attachToTab, openTabFor, rateForNewTab } from "@/lib/domain/tabs";
+import { tabDue } from "@/lib/domain/cash";
+import { formatMoney } from "@/lib/format";
 import { newId } from "@/lib/ids";
 import { getDb, mutate } from "@/lib/store/db";
 import { priceLocalLines } from "@/lib/store/actions";
@@ -169,8 +171,11 @@ export async function transferTab(tabId: string, table: number): Promise<void> {
   });
 }
 
-/** Fecha a conta: os pedidos ainda abertos viram "servido" e a mesa fica livre. */
-export async function closeTab(tabId: string, removeServiceFee: boolean): Promise<void> {
+/**
+ * Fecha a mesa quando a conta está paga (ou não há nada a pagar). Com o caixa (SQL 005), quem fecha
+ * normalmente é o último pagamento; isto serve para a mesa aberta sem consumo.
+ */
+export async function closeTab(tabId: string, removeServiceFee = false): Promise<void> {
   const tab = (getDb().tabs ?? []).find((t) => t.id === tabId);
   if (tab && isRemoteStore(tab.storeId)) {
     const { data, error } = await getSupabase().rpc("close_tab", { p_tab: tabId, p_remove_service_fee: removeServiceFee });
@@ -181,6 +186,9 @@ export async function closeTab(tabId: string, removeServiceFee: boolean): Promis
   }
   mutate((db) => {
     const t = localTab(db, tabId);
+    if (removeServiceFee) t.serviceFeeRemoved = true;
+    const due = tabDue(t, db.orders, db.payments ?? []);
+    if (due > 0) throw new TabError(`Ainda falta receber ${formatMoney(due)}. Registre os pagamentos para fechar.`);
     const now = new Date();
     db.orders = db.orders.map((o) =>
       o.tabId === tabId && o.status !== "concluido" && o.status !== "cancelado" ? applyStatus(o, "concluido", now) : o,
@@ -188,6 +196,5 @@ export async function closeTab(tabId: string, removeServiceFee: boolean): Promis
     t.status = "closed";
     t.closedAt = now.toISOString();
     t.closedBy = db.session?.accountId;
-    t.serviceFeeRemoved = removeServiceFee;
   });
 }

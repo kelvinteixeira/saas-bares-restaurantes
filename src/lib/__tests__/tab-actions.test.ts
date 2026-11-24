@@ -92,16 +92,14 @@ describe("comanda na loja local", () => {
     expect(moved.customer.name).toBe(`Mesa ${to}`);
   });
 
-  it("fechar a conta serve os pedidos abertos, libera a mesa e guarda se tirou a taxa", async () => {
-    const [table] = freeTables();
+  it("fechar a conta só com ela paga; mesa vazia fecha direto", async () => {
+    const [table, empty] = freeTables();
     const order = await addToTab(DEMO_STORE_ID, table, [batata]);
-    await closeTab(order.tabId!, true);
-    const tab = getDb().tabs!.find((t) => t.id === order.tabId)!;
-    expect(tab).toMatchObject({ status: "closed", serviceFeeRemoved: true });
-    expect(getDb().orders.find((o) => o.id === order.id)!.status).toBe("concluido");
-    expect(freeTables()).toContain(table);
-    await expect(addToTab(DEMO_STORE_ID, table, [batata]).then((o) => o.tabId)).resolves.not.toBe(order.tabId);
-    await expect(closeTab(order.tabId!, false)).rejects.toThrow("fechada");
+    await expect(closeTab(order.tabId!)).rejects.toThrow("Ainda falta receber");
+    const tab = await openTab(DEMO_STORE_ID, empty);
+    await closeTab(tab.id);
+    expect(getDb().tabs!.find((t) => t.id === tab.id)!.status).toBe("closed");
+    expect(freeTables()).toContain(empty);
   });
 
   it("recusa item sem a escolha obrigatória e lançamento vazio", async () => {

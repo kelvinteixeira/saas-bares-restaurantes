@@ -13,6 +13,11 @@ import {
 import { formatClock, formatDuration, formatMoney, formatOrderNumber, formatPhone, minutesBetween, onlyDigits } from "@/lib/format";
 import { advanceOrder, cancelOrder } from "@/lib/store/actions";
 import { Button } from "@/components/ui/button";
+import { Pill } from "@/components/ui/pill";
+import { usePainel } from "@/components/painel/painel-context";
+import { CashClosedNotice, PaymentForm, PaymentList, type PayInput } from "@/components/painel/cash/payment-form";
+import { openSession, orderDue, orderPaid } from "@/lib/domain/cash";
+import { registerPayment } from "@/lib/store/cash";
 import { Modal } from "@/components/ui/modal";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
 import { attempt, useToast } from "@/components/ui/toast";
@@ -21,6 +26,9 @@ const PAYMENT_LABEL = { pix: "Pix na entrega", card: "Cartão na entrega", cash:
 
 export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; onBack?: () => void }) {
   const toast = useToast();
+  const { db } = usePainel();
+  // Depois de receber no caixa, vale o que foi registrado; a forma combinada no pedido some.
+  const received = (db.payments ?? []).some((p) => p.orderId === order.id);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const action = advanceLabel(order);
   const late = isLate(order, now);
@@ -118,17 +126,20 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
             <dt>Total</dt>
             <dd className="num">{formatMoney(order.total)}</dd>
           </div>
-          <div className="flex justify-between py-0.5">
-            <dt className="text-muted">Pagamento</dt>
-            <dd>{PAYMENT_LABEL[order.payment.method]}</dd>
-          </div>
-          {change > 0 && (
+          {!received && (
+            <div className="flex justify-between py-0.5">
+              <dt className="text-muted">Pagamento</dt>
+              <dd>{PAYMENT_LABEL[order.payment.method]}</dd>
+            </div>
+          )}
+          {change > 0 && !received && (
             <div className="flex justify-between py-0.5">
               <dt className="text-muted">Troco para {formatMoney(order.payment.changeFor!)}</dt>
               <dd className="num font-medium">{formatMoney(change)}</dd>
             </div>
           )}
         </dl>
+        {!order.tabId && <OrderPayment order={order} />}
       </section>
 
       <section className="mt-5 border-t border-rule pt-4">
@@ -192,5 +203,54 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
         </p>
       </Modal>
     </article>
+  );
+}
+
+/** Recebimento de pedido fora de mesa (balcão, retirada, entrega). Só para quem mexe no caixa. */
+function OrderPayment({ order }: { order: Order }) {
+  const { db, store, role } = usePainel();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  if (role !== "owner" && role !== "manager" && role !== "cashier") return null;
+  const payments = (db.payments ?? []).filter((p) => p.orderId === order.id);
+  const paid = orderPaid(order, payments);
+  const due = orderDue(order, payments);
+  const cashOpen = Boolean(openSession(db.cashSessions ?? [], store.id));
+  if (order.status === "cancelado" && !paid) return null;
+
+  async function pay(input: PayInput) {
+    const result = await attempt(toast, () => registerPayment({ orderId: order.id, ...input }));
+    if (!result) return false;
+    toast(result.payment.changeGiven > 0 ? `Recebido. Troco: ${formatMoney(result.payment.changeGiven)}` : "Recebido");
+    if (result.due === 0) setOpen(false);
+    return true;
+  }
+
+  return (
+    <div className="no-print mt-3 rounded-card border border-line p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">{due > 0 ? (paid > 0 ? `Falta receber ${formatMoney(due)}` : "A receber") : "Pagamento"}</span>
+        {due <= 0 ? <Pill tone="positive">Pago</Pill> : !open && cashOpen && (
+          <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+            Receber {formatMoney(due)}
+          </Button>
+        )}
+      </div>
+      {payments.length > 0 && (
+        <div className="mt-2">
+          <PaymentList payments={payments} />
+        </div>
+      )}
+      {due > 0 && !cashOpen && (
+        <div className="mt-2">
+          <CashClosedNotice />
+        </div>
+      )}
+      {due > 0 && open && cashOpen && (
+        <div className="mt-3">
+          <PaymentForm key={due} due={due} onPay={pay} />
+        </div>
+      )}
+    </div>
   );
 }

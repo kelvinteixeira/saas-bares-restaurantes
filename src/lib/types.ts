@@ -192,6 +192,51 @@ export interface Tab {
   notes?: string;
 }
 
+/** Forma de um recebimento no caixa (o cartão separa crédito e débito). */
+export type PaymentKind = "pix" | "credit" | "debit" | "cash";
+
+/** Turno do caixa: abre com o fundo de troco e fecha com a contagem do dinheiro. */
+export interface CashSession {
+  id: string;
+  storeId: string;
+  status: "open" | "closed";
+  openedBy?: string;
+  openedAt: string;
+  openingAmount: number;
+  closedBy?: string;
+  closedAt?: string;
+  countedAmount?: number;
+  expectedAmount?: number;
+  notes?: string;
+}
+
+/** Recebimento da conta de uma mesa (tabId) ou de um pedido fora de mesa (orderId). */
+export interface Payment {
+  id: string;
+  storeId: string;
+  cashSessionId: string;
+  tabId?: string;
+  orderId?: string;
+  method: PaymentKind;
+  /** Quanto abateu da conta. No dinheiro, o entregue é amount + changeGiven. */
+  amount: number;
+  changeGiven: number;
+  createdBy?: string;
+  createdAt: string;
+}
+
+/** Sangria (withdrawal) ou suprimento (deposit). */
+export interface CashMovement {
+  id: string;
+  storeId: string;
+  cashSessionId: string;
+  kind: "withdrawal" | "deposit";
+  amount: number;
+  reason: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
 /** Função de quem entra no painel: dono, gerente, caixa, garçom ou cozinha. */
 export type StoreRole = "owner" | "manager" | "cashier" | "waiter" | "kitchen";
 
@@ -242,4 +287,7 @@ export interface Db {
   orders: Order[];
   /** Comandas de mesa (documentos antigos da demonstração não têm). */
   tabs?: Tab[];
+  cashSessions?: CashSession[];
+  payments?: Payment[];
+  cashMovements?: CashMovement[];
 }
