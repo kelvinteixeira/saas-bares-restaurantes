@@ -87,6 +87,10 @@ describe("telas por função", () => {
     expect(canSee("kitchen", "/painel/cozinha")).toBe(true);
     expect(canSee("kitchen", "/painel/pedidos")).toBe(false);
     expect(canSee("owner", "/painel/qualquer-coisa")).toBe(false);
+    expect(canSee("manager", "/painel/relatorios")).toBe(true);
+    expect(canSee("cashier", "/painel/relatorios")).toBe(false);
+    expect(canSee("cashier", "/painel/caixa")).toBe(true);
+    expect(canSee("waiter", "/painel/caixa")).toBe(false);
   });
 
   it("reconhece subpáginas e manda cada função para a sua tela inicial", () => {

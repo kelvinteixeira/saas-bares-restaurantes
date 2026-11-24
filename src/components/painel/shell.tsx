@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ChartColumn,
   ChefHat,
   ExternalLink,
   House,
@@ -40,6 +41,7 @@ const NAV = [
   { href: "/painel/cozinha", label: "Tela de preparo", icon: ChefHat },
   { href: "/painel/cardapio", label: "Cardápio", icon: UtensilsCrossed },
   { href: "/painel/mesas", label: "Mesas", icon: QrCode },
+  { href: "/painel/relatorios", label: "Relatórios", icon: ChartColumn },
   { href: "/painel/equipe", label: "Equipe", icon: Users },
   { href: "/painel/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
