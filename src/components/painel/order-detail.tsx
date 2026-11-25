@@ -25,6 +25,7 @@ import { assignDriver } from "@/lib/store/drivers";
 import { Select } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
+import { OrderNfce } from "@/components/painel/order-nfce";
 import { attempt, useToast } from "@/components/ui/toast";
 
 const PAYMENT_LABEL = { pix: "Pix na entrega", card: "Cartão na entrega", cash: "Dinheiro", tab: "Na conta da mesa" } as const;
@@ -163,6 +164,7 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
           )}
         </dl>
         {!order.tabId && <OrderPayment order={order} />}
+        {!order.tabId && <OrderNfce order={order} />}
       </section>
 
       <section className="mt-5 border-t border-rule pt-4">

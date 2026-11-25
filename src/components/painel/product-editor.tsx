@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { ImagePlus, Plus, Trash2 } from "lucide-react";
 import type { Category, OptionGroup, PrepStation, Product } from "@/lib/types";
 import { groupRule } from "@/lib/domain/pricing";
+import { productFiscalProblems } from "@/lib/domain/fiscal";
 import { moneyInput, parseMoney } from "@/lib/format";
 import { newId } from "@/lib/ids";
 import { resizeImage } from "@/lib/image";
@@ -37,6 +38,9 @@ interface Draft {
   available: boolean;
   prepStation: PrepStation;
   groups: DraftGroup[];
+  ncm: string;
+  cfop: string;
+  taxCode: string;
 }
 
 function toDraft(p: Product): Draft {
@@ -48,6 +52,9 @@ function toDraft(p: Product): Draft {
     image: p.image,
     available: p.available,
     prepStation: p.prepStation ?? "kitchen",
+    ncm: p.fiscal?.ncm ?? "",
+    cfop: p.fiscal?.cfop ?? "",
+    taxCode: p.fiscal?.taxCode ?? "",
     groups: p.optionGroups.map((g) => ({
       id: g.id,
       name: g.name,
@@ -86,6 +93,9 @@ function fromDraft(d: Draft, base: Product): { product?: Product; errors: Errors
       }),
     };
   });
+  const fiscal = { ...(d.ncm ? { ncm: d.ncm } : {}), ...(d.cfop ? { cfop: d.cfop } : {}), ...(d.taxCode ? { taxCode: d.taxCode } : {}) };
+  const fiscalProblem = productFiscalProblems(fiscal)[0];
+  if (fiscalProblem) errors.fiscal = fiscalProblem;
   if (Object.keys(errors).length) return { errors };
   return {
     errors,
@@ -99,6 +109,8 @@ function fromDraft(d: Draft, base: Product): { product?: Product; errors: Errors
       available: d.available,
       prepStation: d.prepStation,
       optionGroups: groups,
+      // Vazio volta para os padrões da loja (manda {} se o item já tinha códigos).
+      fiscal: Object.keys(fiscal).length ? fiscal : base.fiscal ? {} : undefined,
     },
   };
 }
@@ -277,6 +289,36 @@ export function ProductEditor({
           </Select>
         )}
       </Field>
+      <details className="rounded-card border border-line px-3 py-2.5" open={Boolean(draft.ncm || draft.cfop || draft.taxCode || errors.fiscal)}>
+        <summary className="cursor-pointer text-sm font-medium">Dados fiscais (NFC-e)</summary>
+        <p className="mt-1 text-xs text-muted">Vazio usa o padrão da loja (Configurações › Fiscal). Confira com o seu contador.</p>
+        <div className="mt-3 grid grid-cols-3 gap-3">
+          {(
+            [
+              ["ncm", "NCM", 8, "22021000"],
+              ["cfop", "CFOP", 4, "5405"],
+              ["taxCode", "CSOSN/CST", 3, "500"],
+            ] as const
+          ).map(([key, label, max, placeholder]) => (
+            <Field key={key} label={label}>
+              {(p) => (
+                <Input
+                  {...p}
+                  inputMode="numeric"
+                  className="font-mono"
+                  placeholder={placeholder}
+                  value={draft[key]}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "").slice(0, max);
+                    update((d) => ({ ...d, [key]: v }));
+                  }}
+                />
+              )}
+            </Field>
+          ))}
+        </div>
+        {errors.fiscal && <p className="mt-2 text-xs text-negative">{errors.fiscal}</p>}
+      </details>
       <div className="flex items-center justify-between rounded-card bg-raised px-3 py-2.5">
         <span>
           <span className="block text-sm font-medium">Disponível para pedir</span>

@@ -113,6 +113,58 @@ export interface Product {
   optionGroups: OptionGroup[];
   /** Sem valor = cozinha. */
   prepStation?: PrepStation;
+  /** Códigos fiscais próprios do item (senão valem os padrões da loja). SQL 012. */
+  fiscal?: ProductFiscal;
+}
+
+export interface ProductFiscal {
+  ncm?: string;
+  cfop?: string;
+  /** CSOSN (Simples Nacional) ou CST do ICMS (regime normal). */
+  taxCode?: string;
+}
+
+export type TaxRegime = "simples" | "simples_excesso" | "normal";
+export type FiscalEnvironment = "homologacao" | "producao";
+
+/** Dados fiscais da loja para a NFC-e. Certificado e CSC não ficam aqui: vão direto ao emissor. */
+export interface StoreFiscal {
+  storeId: string;
+  enabled: boolean;
+  environment: FiscalEnvironment;
+  cnpj: string;
+  ie: string;
+  legalName: string;
+  regime: TaxRegime;
+  defaultNcm: string;
+  defaultCfop: string;
+  defaultTaxCode: string;
+  providerCompanyId?: string;
+  certificateValidUntil?: string;
+  updatedAt: string;
+}
+
+/** Nota fiscal de consumidor (NFC-e) de um pedido. Gravada pelo servidor com a resposta do emissor. */
+export interface FiscalDocument {
+  id: string;
+  storeId: string;
+  orderId?: string;
+  environment: FiscalEnvironment;
+  /** "simulador" = sem valor fiscal. */
+  provider: string;
+  status: "processing" | "authorized" | "rejected" | "cancelled" | "error";
+  number?: number;
+  series?: number;
+  accessKey?: string;
+  protocol?: string;
+  total: number;
+  cpf?: string;
+  danfeUrl?: string;
+  xmlUrl?: string;
+  message?: string;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt?: string;
 }
 
 export type OrderMode = "delivery" | "pickup" | "table";
@@ -371,4 +423,6 @@ export interface Db {
   cashbackEntries?: CashbackEntry[];
   drivers?: Driver[];
   carts?: AbandonedCart[];
+  storeFiscal?: StoreFiscal[];
+  fiscalDocs?: FiscalDocument[];
 }

@@ -10,7 +10,7 @@
 // A sessão remota tem prioridade sobre a local.
 
 import { useSyncExternalStore } from "react";
-import type { AbandonedCart, Account, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Db, Order, Payment, Product, Store, Tab } from "@/lib/types";
+import type { FiscalDocument, StoreFiscal, AbandonedCart, Account, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Db, Order, Payment, Product, Store, Tab } from "@/lib/types";
 import { buildDemoDb, demoProducts, DEMO_STORE_ID, tabsForOpenTableOrders } from "@/lib/seed";
 import { supabaseConfigured } from "@/lib/supabase/client";
 
@@ -30,6 +30,8 @@ export interface RemoteState {
   cashbackEntries: CashbackEntry[];
   drivers: Driver[];
   carts: AbandonedCart[];
+  storeFiscal: StoreFiscal[];
+  fiscalDocs: FiscalDocument[];
   /** Lojas públicas buscadas por endereço: "loading" ou "done" (achada ou não). */
   slugState: Record<string, "loading" | "done">;
   /** Pedidos buscados para acompanhamento: "loading" ou "done". */
@@ -37,7 +39,7 @@ export interface RemoteState {
 }
 
 export function emptyRemote(authResolved: boolean): RemoteState {
-  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], cashSessions: [], payments: [], cashMovements: [], coupons: [], cashbackEntries: [], drivers: [], carts: [], slugState: {}, orderState: {} };
+  return { authResolved, account: null, stores: [], categories: [], products: [], orders: [], tabs: [], cashSessions: [], payments: [], cashMovements: [], coupons: [], cashbackEntries: [], drivers: [], carts: [], storeFiscal: [], fiscalDocs: [], slugState: {}, orderState: {} };
 }
 
 let remote: RemoteState = emptyRemote(!supabaseConfigured());
@@ -188,6 +190,8 @@ function read(): Db {
     cashbackEntries: [...(local.cashbackEntries ?? []), ...remote.cashbackEntries],
     drivers: [...(local.drivers ?? []), ...remote.drivers],
     carts: [...(local.carts ?? []), ...remote.carts],
+    storeFiscal: [...(local.storeFiscal ?? []), ...remote.storeFiscal],
+    fiscalDocs: [...(local.fiscalDocs ?? []), ...remote.fiscalDocs],
   };
   return merged;
 }
@@ -272,6 +276,8 @@ export function resetDemoData() {
     cashbackEntries: (current.cashbackEntries ?? []).filter((e) => ownIds.has(e.storeId)),
     drivers: (current.drivers ?? []).filter((d) => ownIds.has(d.storeId)),
     carts: (current.carts ?? []).filter((c) => ownIds.has(c.storeId)),
+    storeFiscal: (current.storeFiscal ?? []).filter((f) => ownIds.has(f.storeId)),
+    fiscalDocs: (current.fiscalDocs ?? []).filter((d) => ownIds.has(d.storeId)),
   };
   write(next);
   cache = next;

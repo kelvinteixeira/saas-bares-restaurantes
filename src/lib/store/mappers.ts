@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { AbandonedCart, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
+import type { FiscalDocument, StoreFiscal, AbandonedCart, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -52,6 +52,8 @@ export interface ProductRow {
   position: number;
   option_groups: Product["optionGroups"];
   prep_station?: Product["prepStation"];
+  /** Só existe depois do SQL 012. */
+  fiscal?: Product["fiscal"] | null;
 }
 
 export interface OrderRow {
@@ -168,6 +170,7 @@ export function rowToProduct(r: ProductRow): Product {
     position: r.position,
     optionGroups: r.option_groups ?? [],
     prepStation: r.prep_station ?? "kitchen",
+    fiscal: r.fiscal ?? undefined,
   };
 }
 
@@ -184,6 +187,8 @@ export function productToRow(p: Product): ProductRow {
     position: p.position,
     option_groups: p.optionGroups,
     prep_station: p.prepStation ?? "kitchen",
+    // Antes do SQL 012 a coluna não existe: só manda quando o item tem códigos fiscais.
+    ...(p.fiscal ? { fiscal: p.fiscal } : {}),
   };
 }
 
@@ -503,5 +508,101 @@ export function rowToCart(r: CartRow): AbandonedCart {
     orderId: r.order_id ?? undefined,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+  };
+}
+
+// ---------- NFC-e (SQL 012) ----------
+
+export interface StoreFiscalRow {
+  store_id: string;
+  enabled: boolean;
+  environment: StoreFiscal["environment"];
+  cnpj: string;
+  ie: string;
+  legal_name: string;
+  regime: StoreFiscal["regime"];
+  default_ncm: string;
+  default_cfop: string;
+  default_tax_code: string;
+  provider_company_id: string | null;
+  certificate_valid_until: string | null;
+  updated_at: string;
+}
+
+export function rowToStoreFiscal(r: StoreFiscalRow): StoreFiscal {
+  return {
+    storeId: r.store_id,
+    enabled: r.enabled,
+    environment: r.environment,
+    cnpj: r.cnpj,
+    ie: r.ie,
+    legalName: r.legal_name,
+    regime: r.regime,
+    defaultNcm: r.default_ncm,
+    defaultCfop: r.default_cfop,
+    defaultTaxCode: r.default_tax_code,
+    providerCompanyId: r.provider_company_id ?? undefined,
+    certificateValidUntil: r.certificate_valid_until ?? undefined,
+    updatedAt: r.updated_at,
+  };
+}
+
+/** O que a loja grava (cadastro no emissor e validade do certificado ficam com o servidor). */
+export function storeFiscalToRow(f: StoreFiscal) {
+  return {
+    store_id: f.storeId,
+    enabled: f.enabled,
+    environment: f.environment,
+    cnpj: f.cnpj,
+    ie: f.ie,
+    legal_name: f.legalName,
+    regime: f.regime,
+    default_ncm: f.defaultNcm,
+    default_cfop: f.defaultCfop,
+    default_tax_code: f.defaultTaxCode,
+  };
+}
+
+export interface FiscalDocumentRow {
+  id: string;
+  store_id: string;
+  order_id: string | null;
+  environment: FiscalDocument["environment"];
+  provider: string;
+  status: FiscalDocument["status"];
+  number: number | null;
+  series: number | null;
+  access_key: string | null;
+  protocol: string | null;
+  total: number;
+  cpf: string | null;
+  danfe_url: string | null;
+  xml_url: string | null;
+  message: string | null;
+  created_at: string;
+  updated_at: string;
+  cancelled_at: string | null;
+}
+
+export function rowToFiscalDocument(r: FiscalDocumentRow): FiscalDocument {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    orderId: r.order_id ?? undefined,
+    environment: r.environment,
+    provider: r.provider,
+    status: r.status,
+    number: r.number ?? undefined,
+    series: r.series ?? undefined,
+    accessKey: r.access_key ?? undefined,
+    protocol: r.protocol ?? undefined,
+    total: r.total,
+    cpf: r.cpf ?? undefined,
+    danfeUrl: r.danfe_url ?? undefined,
+    xmlUrl: r.xml_url ?? undefined,
+    message: r.message ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    cancelledAt: r.cancelled_at ?? undefined,
   };
 }

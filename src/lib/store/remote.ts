@@ -7,7 +7,7 @@
 // - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
 
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import type { AbandonedCart, Account, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
+import type { FiscalDocument, StoreFiscal, AbandonedCart, Account, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
 import {
@@ -21,6 +21,10 @@ import {
   rowToCashbackEntry,
   rowToDriver,
   rowToCart,
+  rowToFiscalDocument,
+  rowToStoreFiscal,
+  type FiscalDocumentRow,
+  type StoreFiscalRow,
   type CartRow,
   type DriverRow,
   type CashbackEntryRow,
@@ -85,6 +89,12 @@ export function remoteUpsertCoupon(coupon: Coupon) {
 }
 export function remoteUpsertCashbackEntry(entry: CashbackEntry) {
   setRemote((r) => ({ ...r, cashbackEntries: upsertById(r.cashbackEntries, entry) }));
+}
+export function remoteUpsertStoreFiscal(f: StoreFiscal) {
+  setRemote((r) => ({ ...r, storeFiscal: [...r.storeFiscal.filter((x) => x.storeId !== f.storeId), f] }));
+}
+export function remoteUpsertFiscalDoc(doc: FiscalDocument) {
+  setRemote((r) => ({ ...r, fiscalDocs: upsertById(r.fiscalDocs, doc) }));
 }
 export function remoteUpsertCart(cart: AbandonedCart) {
   setRemote((r) => ({ ...r, carts: upsertById(r.carts, cart) }));
@@ -252,6 +262,13 @@ async function fetchOwner(user: User) {
     // Sacolas abandonadas (SQL 011): só dono e gerente leem; dos últimos 30 dias.
     const cartsRes = await sb.from("abandoned_carts").select("*").eq("store_id", store.id).order("updated_at", { ascending: false }).limit(1000);
     const carts = cartsRes.error ? [] : ((cartsRes.data ?? []) as CartRow[]).map(rowToCart);
+    // NFC-e (SQL 012): dados fiscais e notas dos últimos dias; dono, gerente e caixa leem.
+    const [fiscalRes, docsRes] = await Promise.all([
+      sb.from("store_fiscal").select("*").eq("store_id", store.id).maybeSingle<StoreFiscalRow>(),
+      sb.from("fiscal_documents").select("*").eq("store_id", store.id).gte("created_at", since).order("created_at"),
+    ]);
+    const storeFiscal = fiscalRes.data ? [rowToStoreFiscal(fiscalRes.data)] : [];
+    const fiscalDocs = docsRes.error ? [] : ((docsRes.data ?? []) as FiscalDocumentRow[]).map(rowToFiscalDocument);
 
     setRemote((r) => ({
       ...r,
@@ -268,14 +285,16 @@ async function fetchOwner(user: User) {
       cashbackEntries: replaceForStore(r.cashbackEntries, store.id, cashbackEntries),
       drivers: replaceForStore(r.drivers, store.id, drivers),
       carts: replaceForStore(r.carts, store.id, carts),
+      storeFiscal: replaceForStore(r.storeFiscal, store.id, storeFiscal),
+      fiscalDocs: replaceForStore(r.fiscalDocs, store.id, fiscalDocs),
       slugState: { ...r.slugState, [store.slug]: "done" },
     }));
-    subscribeOrders(store.id, !tabsRes.error, hasCash, !cashbackRes.error, !cartsRes.error && (membership.role === "owner" || membership.role === "manager"));
+    subscribeOrders(store.id, !tabsRes.error, hasCash, !cashbackRes.error, !cartsRes.error && (membership.role === "owner" || membership.role === "manager"), !docsRes.error && ["owner", "manager", "cashier"].includes(membership.role));
   }
 }
 
 /** Pedidos novos e mudanças de status chegam na hora (Realtime respeita as regras de acesso). */
-function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean, withCashback: boolean, withCarts: boolean) {
+function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean, withCashback: boolean, withCarts: boolean, withFiscal: boolean) {
   const sb = getSupabase();
   if (ordersChannel) void ordersChannel.unsubscribe();
   const channel = sb
@@ -324,6 +343,12 @@ function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean, 
         return;
       }
       remoteUpsertCashbackEntry(rowToCashbackEntry(payload.new as CashbackEntryRow));
+    });
+  }
+  // NFC-e (SQL 012): a nota aparece no pedido assim que o servidor grava a resposta do emissor.
+  if (withFiscal) {
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "fiscal_documents", filter: `store_id=eq.${storeId}` }, (payload) => {
+      if (payload.eventType !== "DELETE") remoteUpsertFiscalDoc(rowToFiscalDocument(payload.new as FiscalDocumentRow));
     });
   }
   // Recuperador (SQL 011): sacolas novas e convertidas aparecem sozinhas.
