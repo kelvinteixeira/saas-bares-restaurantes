@@ -83,7 +83,7 @@ export default function RelatoriosPage() {
       />
 
       <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label="Vendas" value={formatMoney(r.revenue)} hint={r.discounts ? `já sem ${formatMoney(r.discounts)} de cupons` : "itens + entrega"} />
+        <Kpi label="Vendas" value={formatMoney(r.revenue)} hint={r.discounts ? `já sem ${formatMoney(r.discounts)} de cupons e cashback` : "itens + entrega"} />
         <Kpi label="Pedidos" value={String(r.count)} />
         <Kpi label="Ticket médio" value={formatMoney(r.ticket)} />
         <Kpi

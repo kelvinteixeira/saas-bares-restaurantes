@@ -7,6 +7,7 @@ import type { CashMovement, CashSession, Db, Payment, PaymentKind } from "@/lib/
 import { applyStatus } from "@/lib/domain/orders";
 import { cashSplit, openSession, orderDue, sessionSummary, tabDue } from "@/lib/domain/cash";
 import { tabTotals } from "@/lib/domain/tabs";
+import { applyCashbackOnStatus } from "@/lib/domain/cashback";
 import { formatMoney } from "@/lib/format";
 import { newId } from "@/lib/ids";
 import { getDb, mutate } from "@/lib/store/db";
@@ -240,9 +241,12 @@ export function finishLocalTab(db: Db, tabId: string) {
   const tab = (db.tabs ?? []).find((t) => t.id === tabId);
   if (!tab) return;
   const now = new Date();
-  db.orders = db.orders.map((o) =>
-    o.tabId === tabId && o.status !== "concluido" && o.status !== "cancelado" ? applyStatus(o, "concluido", now) : o,
-  );
+  db.orders = db.orders.map((o) => {
+    if (o.tabId !== tabId || o.status === "concluido" || o.status === "cancelado") return o;
+    const done = applyStatus(o, "concluido", now);
+    applyCashbackOnStatus(db, done, "concluido", now);
+    return done;
+  });
   tab.status = "closed";
   tab.closedAt = now.toISOString();
   tab.closedBy = db.session?.accountId;

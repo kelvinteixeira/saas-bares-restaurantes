@@ -64,6 +64,8 @@ export interface Store {
   };
   /** Taxa de serviço das mesas. Sem valor = 10% ligada (padrão do banco). */
   serviceFee?: { enabled: boolean; rate: number };
+  /** Cashback pelo WhatsApp. Sem valor = desligado. */
+  cashback?: { enabled: boolean; rate: number; validDays: number };
   nextOrderNumber: number;
   createdAt: string; // ISO
 }
@@ -176,6 +178,21 @@ export interface Order {
   discount?: number;
   couponId?: string;
   couponCode?: string;
+  /** Saldo de cashback usado (centavos), já abatido do total. */
+  cashbackUsed?: number;
+}
+
+/** Lançamento de cashback: ganho ao concluir um pedido, ou uso num pedido. */
+export interface CashbackEntry {
+  id: string;
+  storeId: string;
+  phone: string;
+  orderId?: string;
+  kind: "earn" | "spend";
+  amount: number;
+  createdAt: string;
+  /** Só nos ganhos. */
+  expiresAt?: string;
 }
 
 export type CouponKind = "percent" | "fixed" | "free_delivery";
@@ -313,4 +330,5 @@ export interface Db {
   payments?: Payment[];
   cashMovements?: CashMovement[];
   coupons?: Coupon[];
+  cashbackEntries?: CashbackEntry[];
 }

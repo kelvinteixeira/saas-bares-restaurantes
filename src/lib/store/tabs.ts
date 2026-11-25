@@ -8,6 +8,7 @@ import type { CartLine } from "@/lib/domain/pricing";
 import { applyStatus } from "@/lib/domain/orders";
 import { attachToTab, openTabFor, rateForNewTab } from "@/lib/domain/tabs";
 import { tabDue } from "@/lib/domain/cash";
+import { applyCashbackOnStatus } from "@/lib/domain/cashback";
 import { formatMoney } from "@/lib/format";
 import { newId } from "@/lib/ids";
 import { getDb, mutate } from "@/lib/store/db";
@@ -190,9 +191,12 @@ export async function closeTab(tabId: string, removeServiceFee = false): Promise
     const due = tabDue(t, db.orders, db.payments ?? []);
     if (due > 0) throw new TabError(`Ainda falta receber ${formatMoney(due)}. Registre os pagamentos para fechar.`);
     const now = new Date();
-    db.orders = db.orders.map((o) =>
-      o.tabId === tabId && o.status !== "concluido" && o.status !== "cancelado" ? applyStatus(o, "concluido", now) : o,
-    );
+    db.orders = db.orders.map((o) => {
+      if (o.tabId !== tabId || o.status === "concluido" || o.status === "cancelado") return o;
+      const done = applyStatus(o, "concluido", now);
+      applyCashbackOnStatus(db, done, "concluido", now);
+      return done;
+    });
     t.status = "closed";
     t.closedAt = now.toISOString();
     t.closedBy = db.session?.accountId;

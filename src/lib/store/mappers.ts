@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
+import type { CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -22,6 +22,8 @@ export interface StoreRow {
   payment: Partial<Store["payment"]>;
   /** Só existe depois do SQL 003. */
   service_fee?: Store["serviceFee"];
+  /** Só existe depois do SQL 007. */
+  cashback?: Store["cashback"];
   next_order_number: number;
   created_at: string;
 }
@@ -74,6 +76,8 @@ export interface OrderRow {
   discount?: number;
   coupon_id?: string | null;
   coupon_code?: string | null;
+  /** Coluna do SQL 007. */
+  cashback_used?: number;
 }
 
 function toHours(raw: StoreRow["hours"]): WeeklyHours {
@@ -100,6 +104,7 @@ export function rowToStore(r: StoreRow): Store {
     table: { enabled: false, count: 10, ...r.table_service },
     payment: { pix: true, card: true, cash: true, ...r.payment },
     serviceFee: r.service_fee ?? undefined,
+    cashback: r.cashback ?? undefined,
     nextOrderNumber: r.next_order_number,
     createdAt: r.created_at,
   };
@@ -125,6 +130,7 @@ export function storeToUpdate(s: Store) {
     payment: s.payment,
     // Antes do SQL 003 a coluna não existe: só manda quando a loja já tem o valor.
     ...(s.serviceFee ? { service_fee: s.serviceFee } : {}),
+    ...(s.cashback ? { cashback: s.cashback } : {}),
   };
 }
 
@@ -193,6 +199,7 @@ export function rowToOrder(r: OrderRow): Order {
     discount: r.discount || undefined,
     couponId: r.coupon_id ?? undefined,
     couponCode: r.coupon_code ?? undefined,
+    cashbackUsed: r.cashback_used || undefined,
   };
 }
 
@@ -382,5 +389,31 @@ export function couponToRow(c: Coupon): Omit<CouponRow, "created_at"> {
     starts_at: c.startsAt ?? null,
     ends_at: c.endsAt ?? null,
     active: c.active,
+  };
+}
+
+// ---------- cashback (SQL 007) ----------
+
+export interface CashbackEntryRow {
+  id: string;
+  store_id: string;
+  phone: string;
+  order_id: string | null;
+  kind: CashbackEntry["kind"];
+  amount: number;
+  created_at: string;
+  expires_at: string | null;
+}
+
+export function rowToCashbackEntry(r: CashbackEntryRow): CashbackEntry {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    phone: r.phone,
+    orderId: r.order_id ?? undefined,
+    kind: r.kind,
+    amount: r.amount,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at ?? undefined,
   };
 }

@@ -16,6 +16,8 @@ import { deliveryFee } from "@/lib/domain/pricing";
 import { formatMoney, formatPhone, onlyDigits, parseMoney } from "@/lib/format";
 import { CheckoutError, placeOrder } from "@/lib/store/actions";
 import { checkCoupon } from "@/lib/store/coupons";
+import { getCashbackInfo, type CashbackInfo } from "@/lib/store/cashback";
+import { cashbackOf, earnAmount, validPhone } from "@/lib/domain/cashback";
 import { StorageFullError } from "@/lib/store/db";
 import { cn } from "@/lib/cn";
 
@@ -57,6 +59,8 @@ export function Checkout({ slug }: { slug: string }) {
   const [coupon, setCoupon] = useState<{ code: string; discount: number; key: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [cashback, setCashback] = useState<(CashbackInfo & { phone: string }) | null>(null);
+  const [useCashback, setUseCashback] = useState(false);
 
   // Preenche com os dados do último pedido feito neste aparelho.
   useEffect(() => {
@@ -91,7 +95,13 @@ export function Checkout({ slug }: { slug: string }) {
   // O desconto foi conferido para esta sacola, modalidade e bairro; se algo mudar, confere de novo.
   const couponKey = `${subtotal}|${fee ?? 0}|${mode}|${onlyDigits(form.phone)}`;
   const discount = coupon && coupon.key === couponKey ? coupon.discount : 0;
-  const total = subtotal + (fee ?? 0) - discount;
+  // Cashback: saldo do WhatsApp digitado, usado até o valor do pedido.
+  const phone = validPhone(form.phone);
+  const cbEnabled = cashbackOf(store).enabled;
+  const balance = cashback && cashback.phone === phone ? cashback.balance : 0;
+  const cashbackUsed = cbEnabled && useCashback ? Math.min(balance, subtotal + (fee ?? 0) - discount) : 0;
+  const total = subtotal + (fee ?? 0) - discount - cashbackUsed;
+  const willEarn = earnAmount({ subtotal, discount, cashbackUsed }, store);
   const open = isStoreOpen(store, now);
   const belowMinimum = mode === "delivery" && subtotal < store.delivery.minOrder;
   // Item que esgotou ou saiu do cardápio depois de ir para a sacola.
@@ -169,6 +179,7 @@ export function Checkout({ slug }: { slug: string }) {
         payment: payment === "cash" && changeText.trim() ? { method: "cash", changeFor: parseMoney(changeText)! } : { method: payment },
         notes: notes.trim() || undefined,
         couponCode: coupon?.code,
+        useCashback: cashbackUsed > 0,
       });
       try {
         window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(form));
@@ -426,6 +437,12 @@ export function Checkout({ slug }: { slug: string }) {
                     <dd className="num">−{formatMoney(discount)}</dd>
                   </div>
                 )}
+                {cashbackUsed > 0 && (
+                  <div className="flex justify-between py-0.5 text-positive">
+                    <dt>Cashback</dt>
+                    <dd className="num">−{formatMoney(cashbackUsed)}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between pt-2 text-[17px] font-semibold">
                   <dt>Total</dt>
                   <dd className="num">{formatMoney(total)}</dd>
@@ -493,6 +510,31 @@ export function Checkout({ slug }: { slug: string }) {
                   </button>
                 )}
               </div>
+              {cbEnabled && (
+                <div className="mt-3 border-t border-rule pt-3 text-sm">
+                  {phone && <CashbackLoader storeId={store.id} phone={phone} onInfo={(info) => setCashback({ ...info, phone })} />}
+                  {balance > 0 ? (
+                    <label className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={useCashback}
+                        onChange={(e) => setUseCashback(e.target.checked)}
+                        className="mt-0.5 size-4 accent-[var(--brand)]"
+                      />
+                      <span>
+                        Usar meu cashback <span className="num font-medium">({formatMoney(balance)} disponível)</span>
+                      </span>
+                    </label>
+                  ) : (
+                    !phone && <p className="text-muted">Informe seu WhatsApp para ver seu saldo de cashback.</p>
+                  )}
+                  {willEarn > 0 && (phone || mode !== "table") && (
+                    <p className="mt-1.5 text-muted">
+                      Este pedido rende <span className="num font-medium text-positive">{formatMoney(willEarn)}</span> de cashback para o próximo.
+                    </p>
+                  )}
+                </div>
+              )}
               {belowMinimum && (
                 <p className="mt-3 text-sm text-negative">
                   Faltam {formatMoney(store.delivery.minOrder - subtotal)} para o pedido mínimo de entrega.
@@ -529,5 +571,24 @@ function Recheck({ run }: { run: () => void }) {
     // Só uma vez por montagem: o pai desmonta este componente quando a conferência começa.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  return null;
+}
+
+/** Busca o saldo de cashback do WhatsApp (espera o cliente parar de digitar). */
+function CashbackLoader({ storeId, phone, onInfo }: { storeId: string; phone: string; onInfo: (info: CashbackInfo) => void }) {
+  useEffect(() => {
+    let alive = true;
+    const id = window.setTimeout(() => {
+      void getCashbackInfo(storeId, phone).then((info) => {
+        if (alive) onInfo(info);
+      });
+    }, 400);
+    return () => {
+      alive = false;
+      window.clearTimeout(id);
+    };
+    // onInfo muda a cada render; o que importa é a loja e o telefone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, phone]);
   return null;
 }

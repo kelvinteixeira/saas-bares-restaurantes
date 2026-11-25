@@ -128,6 +128,12 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
               <dd className="num">−{formatMoney(order.discount!)}</dd>
             </div>
           )}
+          {(order.cashbackUsed ?? 0) > 0 && (
+            <div className="flex justify-between py-0.5">
+              <dt className="text-muted">Cashback usado</dt>
+              <dd className="num">−{formatMoney(order.cashbackUsed!)}</dd>
+            </div>
+          )}
           <div className="flex justify-between py-1 text-[15px] font-semibold">
             <dt>Total</dt>
             <dd className="num">{formatMoney(order.total)}</dd>

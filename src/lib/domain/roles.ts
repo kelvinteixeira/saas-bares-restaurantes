@@ -23,8 +23,8 @@ export const ROLE_HINT: Record<StoreRole, string> = {
 export const INVITABLE_ROLES = ["manager", "cashier", "waiter", "kitchen"] as const satisfies readonly StoreRole[];
 
 const PAGES: Record<StoreRole, readonly string[]> = {
-  owner: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/cupons", "/painel/relatorios", "/painel/equipe", "/painel/configuracoes"],
-  manager: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/cupons", "/painel/relatorios", "/painel/configuracoes"],
+  owner: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/cupons", "/painel/cashback", "/painel/relatorios", "/painel/equipe", "/painel/configuracoes"],
+  manager: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/cupons", "/painel/cashback", "/painel/relatorios", "/painel/configuracoes"],
   cashier: ["/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/mesas"],
   waiter: ["/painel/pedidos", "/painel/mesas"],
   kitchen: ["/painel/cozinha"],

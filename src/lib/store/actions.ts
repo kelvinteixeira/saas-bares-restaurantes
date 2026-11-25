@@ -27,6 +27,7 @@ import { buildOrderItem, demoCategories, demoProducts, demoStore, randomOrder } 
 import { isStoreOpen } from "@/lib/domain/hours";
 import { attachToTab } from "@/lib/domain/tabs";
 import { evaluateCoupon, normalizeCode } from "@/lib/domain/coupons";
+import { applyCashbackOnStatus, balanceOf, cashbackOf, validPhone } from "@/lib/domain/cashback";
 import { getSupabase } from "@/lib/supabase/client";
 import {
   friendly,
@@ -344,6 +345,7 @@ async function saveOrderStatus(order: Order, next: Order) {
     mutate((db) => {
       const i = db.orders.findIndex((o) => o.id === order.id);
       if (i >= 0) db.orders[i] = next;
+      if (next.status !== order.status) applyCashbackOnStatus(db, next, next.status);
     });
     return;
   }
@@ -381,6 +383,8 @@ export interface CheckoutInput {
   notes?: string;
   /** Código de cupom digitado no checkout. */
   couponCode?: string;
+  /** Usar o saldo de cashback do WhatsApp do pedido. */
+  useCashback?: boolean;
 }
 
 export class CheckoutError extends Error {}
@@ -492,7 +496,16 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     }
   }
 
-  const total = subtotal + fee - discount;
+  // Cashback: mesmas regras do place_order no banco.
+  let cashbackUsed = 0;
+  if (input.useCashback) {
+    if (!cashbackOf(store).enabled) throw new CheckoutError("Esta loja não está com cashback agora.");
+    const phone = validPhone(customerPhone);
+    if (!phone) throw new CheckoutError("Informe seu WhatsApp para usar o cashback.");
+    cashbackUsed = Math.min(balanceOf(db.cashbackEntries ?? [], store.id, phone, now), subtotal + fee - discount);
+  }
+
+  const total = subtotal + fee - discount - cashbackUsed;
   if (input.payment.method === "cash" && input.payment.changeFor !== undefined && input.payment.changeFor < total) {
     throw new CheckoutError("O troco precisa ser maior ou igual ao total do pedido.");
   }
@@ -517,7 +530,20 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     notes: input.notes?.trim() || undefined,
     source: "cliente",
     ...(coupon && { discount, couponId: coupon.id, couponCode: coupon.code }),
+    ...(cashbackUsed > 0 && { cashbackUsed }),
   };
+  if (cashbackUsed > 0) {
+    db.cashbackEntries ??= [];
+    db.cashbackEntries.push({
+      id: newId(),
+      storeId: store.id,
+      phone: customerPhone,
+      orderId: order.id,
+      kind: "spend",
+      amount: cashbackUsed,
+      createdAt: now.toISOString(),
+    });
+  }
   db.tabs ??= [];
   attachToTab(db.tabs, order, store, newId);
   db.orders.push(order);

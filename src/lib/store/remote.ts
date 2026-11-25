@@ -7,7 +7,7 @@
 // - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
 
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import type { Account, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
+import type { Account, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
 import {
@@ -18,6 +18,8 @@ import {
   rowToTab,
   rowToCashMovement,
   rowToCoupon,
+  rowToCashbackEntry,
+  type CashbackEntryRow,
   type CouponRow,
   rowToCashSession,
   rowToPayment,
@@ -60,13 +62,25 @@ export function remoteUpsertProduct(product: Product) {
   setRemote((r) => ({ ...r, products: upsertById(r.products, product) }));
 }
 export function remoteUpsertOrder(order: Order) {
-  setRemote((r) => ({ ...r, orders: upsertById(r.orders, order) }));
+  setRemote((r) => ({
+    ...r,
+    orders: upsertById(r.orders, order),
+    // Pedido cancelado: o banco apaga o cashback que ele usou (trigger do SQL 007). Essa exclusão não
+    // chega pelo tempo real com filtro de loja, então a tela tira por conta própria.
+    cashbackEntries:
+      order.status === "cancelado"
+        ? r.cashbackEntries.filter((e) => !(e.orderId === order.id && e.kind === "spend"))
+        : r.cashbackEntries,
+  }));
 }
 export function remoteUpsertTab(tab: Tab) {
   setRemote((r) => ({ ...r, tabs: upsertById(r.tabs, tab) }));
 }
 export function remoteUpsertCoupon(coupon: Coupon) {
   setRemote((r) => ({ ...r, coupons: upsertById(r.coupons, coupon) }));
+}
+export function remoteUpsertCashbackEntry(entry: CashbackEntry) {
+  setRemote((r) => ({ ...r, cashbackEntries: upsertById(r.cashbackEntries, entry) }));
 }
 export function remoteRemoveCoupon(id: string) {
   setRemote((r) => ({ ...r, coupons: r.coupons.filter((c) => c.id !== id) }));
@@ -213,6 +227,9 @@ async function fetchOwner(user: User) {
     // Cupons (SQL 006): só dono e gerente leem; os outros recebem vazio.
     const couponsRes = await sb.from("coupons").select("*").eq("store_id", store.id).order("created_at", { ascending: false });
     const coupons = couponsRes.error ? [] : ((couponsRes.data ?? []) as CouponRow[]).map(rowToCoupon);
+    // Cashback (SQL 007): todo o histórico (o saldo depende dele); só dono e gerente leem.
+    const cashbackRes = await sb.from("cashback_entries").select("*").eq("store_id", store.id).order("created_at").limit(5000);
+    const cashbackEntries = cashbackRes.error ? [] : ((cashbackRes.data ?? []) as CashbackEntryRow[]).map(rowToCashbackEntry);
 
     setRemote((r) => ({
       ...r,
@@ -226,14 +243,15 @@ async function fetchOwner(user: User) {
       payments: replaceForStore(r.payments, store.id, payments),
       cashMovements: replaceForStore(r.cashMovements, store.id, cashMovements),
       coupons: replaceForStore(r.coupons, store.id, coupons),
+      cashbackEntries: replaceForStore(r.cashbackEntries, store.id, cashbackEntries),
       slugState: { ...r.slugState, [store.slug]: "done" },
     }));
-    subscribeOrders(store.id, !tabsRes.error, hasCash);
+    subscribeOrders(store.id, !tabsRes.error, hasCash, !cashbackRes.error);
   }
 }
 
 /** Pedidos novos e mudanças de status chegam na hora (Realtime respeita as regras de acesso). */
-function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean) {
+function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean, withCashback: boolean) {
   const sb = getSupabase();
   if (ordersChannel) void ordersChannel.unsubscribe();
   const channel = sb
@@ -273,6 +291,16 @@ function subscribeOrders(storeId: string, withTabs: boolean, withCash: boolean) 
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "cash_movements", filter: `store_id=eq.${storeId}` }, (payload) => {
         remoteUpsertCashMovement(rowToCashMovement(payload.new as CashMovementRow));
       });
+  }
+  if (withCashback) {
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "cashback_entries", filter: `store_id=eq.${storeId}` }, (payload) => {
+      if (payload.eventType === "DELETE") {
+        const id = (payload.old as { id?: string }).id;
+        if (id) setRemote((r) => ({ ...r, cashbackEntries: r.cashbackEntries.filter((e) => e.id !== id) }));
+        return;
+      }
+      remoteUpsertCashbackEntry(rowToCashbackEntry(payload.new as CashbackEntryRow));
+    });
   }
   ordersChannel = channel.subscribe();
 }

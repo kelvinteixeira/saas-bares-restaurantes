@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, MessageCircle } from "lucide-react";
 import { getDb, getRemote, useDb } from "@/lib/store/db";
 import { storeBySlug } from "@/lib/store/actions";
+import { earnAmount, validPhone } from "@/lib/domain/cashback";
 import { isRemoteStore, loadPublicOrder, loadPublicStore, remotePending } from "@/lib/store/remote";
 import { supabaseConfigured } from "@/lib/supabase/client";
 import { BrandScope, StoreLogo, brandButton } from "@/components/cardapio/brand";
@@ -61,6 +62,8 @@ export function OrderTracking({ slug, id }: { slug: string; id: string }) {
   const reached = new Map(order.history.map((h) => [h.status, h.at]));
   const cancelled = order.status === "cancelado";
   const currentIndex = flow.indexOf(order.status);
+  // Estimativa com a porcentagem atual da loja (o banco grava o valor ao concluir).
+  const earned = !cancelled && validPhone(order.customer.phone) ? earnAmount(order, store) : 0;
 
   return (
     <BrandScope store={store}>
@@ -78,6 +81,15 @@ export function OrderTracking({ slug, id }: { slug: string; id: string }) {
           <p className="mt-2 text-[15px] text-muted">
             Feito às {formatClock(new Date(order.createdAt))} · previsão até{" "}
             <span className="num font-medium text-ink">{formatClock(new Date(order.promisedAt))}</span>
+          </p>
+        )}
+        {earned > 0 && (
+          <p className="mt-3 w-fit rounded-full bg-pill-positive-bg px-3 py-1 text-sm text-pill-positive-ink">
+            {order.status === "concluido" ? (
+              <>Você ganhou <span className="num font-semibold">{formatMoney(earned)}</span> de cashback para o próximo pedido</>
+            ) : (
+              <>Ao concluir, você ganha <span className="num font-semibold">{formatMoney(earned)}</span> de cashback</>
+            )}
           </p>
         )}
 
@@ -152,6 +164,12 @@ export function OrderTracking({ slug, id }: { slug: string; id: string }) {
               <div className="flex justify-between py-0.5 text-positive">
                 <dt>Cupom {order.couponCode}</dt>
                 <dd className="num">−{formatMoney(order.discount!)}</dd>
+              </div>
+            )}
+            {(order.cashbackUsed ?? 0) > 0 && (
+              <div className="flex justify-between py-0.5 text-positive">
+                <dt>Cashback</dt>
+                <dd className="num">−{formatMoney(order.cashbackUsed!)}</dd>
               </div>
             )}
             <div className="flex justify-between py-0.5 font-semibold">

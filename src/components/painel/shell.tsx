@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ChartColumn,
   ChefHat,
+  Coins,
   ExternalLink,
   House,
   LogOut,
@@ -43,6 +44,7 @@ const NAV = [
   { href: "/painel/cardapio", label: "Cardápio", icon: UtensilsCrossed },
   { href: "/painel/mesas", label: "Mesas", icon: QrCode },
   { href: "/painel/cupons", label: "Cupons", icon: TicketPercent },
+  { href: "/painel/cashback", label: "Cashback", icon: Coins },
   { href: "/painel/relatorios", label: "Relatórios", icon: ChartColumn },
   { href: "/painel/equipe", label: "Equipe", icon: Users },
   { href: "/painel/configuracoes", label: "Configurações", icon: Settings },
