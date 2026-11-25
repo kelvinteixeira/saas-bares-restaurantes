@@ -13,6 +13,7 @@ import {
   type StationFilter,
 } from "@/lib/domain/kitchen";
 import { formatClock, formatOrderNumber } from "@/lib/format";
+import { readyForKitchen } from "@/lib/domain/schedule";
 import { advanceOrder } from "@/lib/store/actions";
 import { signOut } from "@/lib/store/auth";
 import { cn } from "@/lib/cn";
@@ -56,7 +57,8 @@ export default function CozinhaPage() {
   const [fullscreen, setFullscreen] = useState(false);
 
   const orders = db.orders.filter((o) => o.storeId === store.id);
-  const tickets = kitchenTickets(orders, db.products, station, now);
+  // Pedido agendado entra na tela só perto do horário (o prazo da modalidade antes).
+  const tickets = kitchenTickets(orders.filter((o) => readyForKitchen(o, store, now)), db.products, station, now);
   const waiting = tickets.filter((t) => t.order.status === "novo").length;
   const cooking = tickets.filter((t) => t.order.status === "em_preparo").length;
 

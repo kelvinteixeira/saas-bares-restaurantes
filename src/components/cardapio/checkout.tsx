@@ -18,6 +18,7 @@ import { CheckoutError, placeOrder } from "@/lib/store/actions";
 import { checkCoupon } from "@/lib/store/coupons";
 import { getCashbackInfo, type CashbackInfo } from "@/lib/store/cashback";
 import { cashbackOf, earnAmount, validPhone } from "@/lib/domain/cashback";
+import { canSchedule, scheduleSlots } from "@/lib/domain/schedule";
 import { StorageFullError } from "@/lib/store/db";
 import { cn } from "@/lib/cn";
 
@@ -61,6 +62,8 @@ export function Checkout({ slug }: { slug: string }) {
   const [checking, setChecking] = useState(false);
   const [cashback, setCashback] = useState<(CashbackInfo & { phone: string }) | null>(null);
   const [useCashback, setUseCashback] = useState(false);
+  const [when, setWhen] = useState<"now" | "later">("now");
+  const [slot, setSlot] = useState<string | null>(null);
 
   // Preenche com os dados do último pedido feito neste aparelho.
   useEffect(() => {
@@ -103,6 +106,12 @@ export function Checkout({ slug }: { slug: string }) {
   const total = subtotal + (fee ?? 0) - discount - cashbackUsed;
   const willEarn = earnAmount({ subtotal, discount, cashbackUsed }, store);
   const open = isStoreOpen(store, now);
+  // Agendamento: com a loja fechada, só dá para agendar. O horário escolhido some se passar.
+  const scheduleOk = canSchedule(store, mode);
+  const slotDays = scheduleOk ? scheduleSlots(store, now) : [];
+  const later = scheduleOk && (when === "later" || !open);
+  const chosenSlot = later && slot && slotDays.some((d) => d.slots.some((t) => t.toISOString() === slot)) ? slot : null;
+  const slotDay = chosenSlot ? slotDays.find((d) => d.slots.some((t) => t.toISOString() === chosenSlot)) : undefined;
   const belowMinimum = mode === "delivery" && subtotal < store.delivery.minOrder;
   // Item que esgotou ou saiu do cardápio depois de ir para a sacola.
   const unavailable = cart.lines.some((l) => !products.find((p) => p.id === l.productId)?.available);
@@ -136,6 +145,7 @@ export function Checkout({ slug }: { slug: string }) {
       if (!form.street.trim()) next.street = "Informe a rua.";
       if (!form.number.trim()) next.number = "Informe o número.";
     }
+    if (later && !chosenSlot) next.slot = "Escolha o dia e o horário.";
     if (!payment) next.payment = "Escolha como vai pagar.";
     if (payment === "cash" && changeText.trim()) {
       const v = parseMoney(changeText);
@@ -180,6 +190,7 @@ export function Checkout({ slug }: { slug: string }) {
         notes: notes.trim() || undefined,
         couponCode: coupon?.code,
         useCashback: cashbackUsed > 0,
+        scheduledFor: later ? chosenSlot ?? undefined : undefined,
       });
       try {
         window.localStorage.setItem(CUSTOMER_KEY, JSON.stringify(form));
@@ -220,11 +231,16 @@ export function Checkout({ slug }: { slug: string }) {
         ) : (
           <form onSubmit={submit} noValidate className="mt-6 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex flex-col gap-8">
-              {!open && (
-                <p className="rounded-card bg-pill-negative-bg px-4 py-3 text-[15px] text-pill-negative-ink">
-                  {storeStatus(store, now).label}. O pedido só pode ser enviado com a loja aberta.
-                </p>
-              )}
+              {!open &&
+                (scheduleOk ? (
+                  <p className="rounded-card bg-pill-warning-bg px-4 py-3 text-[15px] text-pill-warning-ink">
+                    {storeStatus(store, now).label}. Você pode agendar o pedido para quando a loja estiver aberta.
+                  </p>
+                ) : (
+                  <p className="rounded-card bg-pill-negative-bg px-4 py-3 text-[15px] text-pill-negative-ink">
+                    {storeStatus(store, now).label}. O pedido só pode ser enviado com a loja aberta.
+                  </p>
+                ))}
 
               <section aria-labelledby="h-modo">
                 <h2 id="h-modo" className="text-[18px] font-semibold">
@@ -268,6 +284,82 @@ export function Checkout({ slug }: { slug: string }) {
                   </p>
                 )}
               </section>
+
+              {scheduleOk && (
+                <section aria-labelledby="h-quando" id="f-slot">
+                  <h2 id="h-quando" className="text-[18px] font-semibold">
+                    Quando?
+                  </h2>
+                  <div role="radiogroup" aria-labelledby="h-quando" className="mt-3 grid grid-cols-2 gap-3">
+                    {(["now", "later"] as const).map((w) => {
+                      const on = (w === "later") === later;
+                      const disabled = w === "now" && !open;
+                      return (
+                        <button
+                          key={w}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          disabled={disabled}
+                          onClick={() => setWhen(w)}
+                          className={cn(
+                            "flex flex-col items-start rounded-card border px-4 py-3 text-left disabled:cursor-not-allowed disabled:opacity-50",
+                            on ? "border-2 border-[var(--brand)] px-[15px] py-[11px]" : "border-line hover:border-control",
+                          )}
+                        >
+                          <span className="text-[15px] font-medium">{w === "now" ? "Agora" : "Agendar"}</span>
+                          <span className="text-[13px] text-muted">
+                            {w === "now" ? (open ? "o quanto antes" : "loja fechada agora") : "escolha dia e horário"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {later &&
+                    (slotDays.length === 0 ? (
+                      <p className="mt-3 text-sm text-negative">Não há horários disponíveis nos próximos dias.</p>
+                    ) : (
+                      <div className="mt-4 flex flex-col gap-3">
+                        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0">
+                          {slotDays.map((d) => {
+                            const on = (slotDay ?? slotDays[0]).day.getTime() === d.day.getTime();
+                            return (
+                              <button
+                                key={d.day.toISOString()}
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() => setSlot(d.slots[0].toISOString())}
+                                className={cn(
+                                  "h-10 flex-none rounded-full border px-4 text-sm capitalize",
+                                  on ? "border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-ink)]" : "border-line hover:border-control",
+                                )}
+                              >
+                                {d.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <Field label="Horário" error={errors.slot}>
+                          {(p) => (
+                            <Select
+                              {...p}
+                              value={chosenSlot ?? ""}
+                              onChange={(e) => setSlot(e.target.value || null)}
+                              className="h-12 max-w-[220px] text-[15px]"
+                            >
+                              <option value="">Escolha</option>
+                              {(slotDay ?? slotDays[0]).slots.map((t) => (
+                                <option key={t.toISOString()} value={t.toISOString()}>
+                                  {t.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                </option>
+                              ))}
+                            </Select>
+                          )}
+                        </Field>
+                      </div>
+                    ))}
+                </section>
+              )}
 
               <section aria-labelledby="h-dados" className="flex flex-col gap-4">
                 <h2 id="h-dados" className="text-[18px] font-semibold">
@@ -549,7 +641,7 @@ export function Checkout({ slug }: { slug: string }) {
                   {submitError}
                 </p>
               )}
-              <button type="submit" disabled={busy || !open || !mode || belowMinimum || unavailable} className={brandButton("mt-4 w-full")}>
+              <button type="submit" disabled={busy || (!open && !later) || !mode || belowMinimum || unavailable} className={brandButton("mt-4 w-full")}>
                 {busy ? "Enviando…" : (
                   <>
                     Fazer pedido <span className="num">· {formatMoney(total)}</span>

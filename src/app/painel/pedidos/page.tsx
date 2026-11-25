@@ -13,6 +13,7 @@ import { advanceLabel, isLate, isOpenOrder, modeLabel } from "@/lib/domain/order
 import { formatClock, formatDuration, formatMoney, formatOrderNumber, minutesBetween } from "@/lib/format";
 import { advanceOrder, simulateOrder } from "@/lib/store/actions";
 import { cn } from "@/lib/cn";
+import { scheduledLabel } from "@/lib/domain/schedule";
 
 type Filter = "abertos" | "novos" | "preparo" | "prontos" | "finalizados";
 
@@ -216,6 +217,11 @@ function OrderRow({
           {formatClock(new Date(order.createdAt))}
           {isOpenOrder(order) && (age < 1 ? " · agora" : ` · há ${formatDuration(age)}`)}
         </span>
+        {order.scheduledFor && isOpenOrder(order) && (
+          <span className="mt-0.5 w-fit rounded-full bg-pill-warning-bg px-2 text-xs font-medium leading-5 text-pill-warning-ink">
+            Agendado {scheduledLabel(order.scheduledFor, now)}
+          </span>
+        )}
       </span>
       <span className="col-span-2 min-w-0 sm:col-span-1">
         <span className="block truncate text-sm font-medium">

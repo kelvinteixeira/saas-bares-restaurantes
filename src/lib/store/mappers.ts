@@ -24,6 +24,8 @@ export interface StoreRow {
   service_fee?: Store["serviceFee"];
   /** Só existe depois do SQL 007. */
   cashback?: Store["cashback"];
+  /** Só existe depois do SQL 008. */
+  scheduling?: Store["scheduling"];
   next_order_number: number;
   created_at: string;
 }
@@ -78,6 +80,8 @@ export interface OrderRow {
   coupon_code?: string | null;
   /** Coluna do SQL 007. */
   cashback_used?: number;
+  /** Coluna do SQL 008. */
+  scheduled_for?: string | null;
 }
 
 function toHours(raw: StoreRow["hours"]): WeeklyHours {
@@ -105,6 +109,7 @@ export function rowToStore(r: StoreRow): Store {
     payment: { pix: true, card: true, cash: true, ...r.payment },
     serviceFee: r.service_fee ?? undefined,
     cashback: r.cashback ?? undefined,
+    scheduling: r.scheduling ?? undefined,
     nextOrderNumber: r.next_order_number,
     createdAt: r.created_at,
   };
@@ -131,6 +136,7 @@ export function storeToUpdate(s: Store) {
     // Antes do SQL 003 a coluna não existe: só manda quando a loja já tem o valor.
     ...(s.serviceFee ? { service_fee: s.serviceFee } : {}),
     ...(s.cashback ? { cashback: s.cashback } : {}),
+    ...(s.scheduling ? { scheduling: s.scheduling } : {}),
   };
 }
 
@@ -200,6 +206,7 @@ export function rowToOrder(r: OrderRow): Order {
     couponId: r.coupon_id ?? undefined,
     couponCode: r.coupon_code ?? undefined,
     cashbackUsed: r.cashback_used || undefined,
+    scheduledFor: r.scheduled_for ?? undefined,
   };
 }
 

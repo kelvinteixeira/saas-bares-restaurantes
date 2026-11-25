@@ -66,6 +66,8 @@ export interface Store {
   serviceFee?: { enabled: boolean; rate: number };
   /** Cashback pelo WhatsApp. Sem valor = desligado. */
   cashback?: { enabled: boolean; rate: number; validDays: number };
+  /** Pedido agendado. Sem valor = desligado. */
+  scheduling?: { enabled: boolean; leadMinutes: number; maxDays: number };
   nextOrderNumber: number;
   createdAt: string; // ISO
 }
@@ -180,6 +182,8 @@ export interface Order {
   couponCode?: string;
   /** Saldo de cashback usado (centavos), já abatido do total. */
   cashbackUsed?: number;
+  /** Pedido agendado: o horário escolhido pelo cliente (o prazo prometido é o mesmo). */
+  scheduledFor?: string;
 }
 
 /** Lançamento de cashback: ganho ao concluir um pedido, ou uso num pedido. */

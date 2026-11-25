@@ -27,6 +27,7 @@ import { buildOrderItem, demoCategories, demoProducts, demoStore, randomOrder } 
 import { isStoreOpen } from "@/lib/domain/hours";
 import { attachToTab } from "@/lib/domain/tabs";
 import { evaluateCoupon, normalizeCode } from "@/lib/domain/coupons";
+import { checkSchedule } from "@/lib/domain/schedule";
 import { applyCashbackOnStatus, balanceOf, cashbackOf, validPhone } from "@/lib/domain/cashback";
 import { getSupabase } from "@/lib/supabase/client";
 import {
@@ -385,6 +386,8 @@ export interface CheckoutInput {
   couponCode?: string;
   /** Usar o saldo de cashback do WhatsApp do pedido. */
   useCashback?: boolean;
+  /** Pedido agendado: horário escolhido (ISO). */
+  scheduledFor?: string;
 }
 
 export class CheckoutError extends Error {}
@@ -445,7 +448,17 @@ export function priceLocalLines(db: Db, store: Store, lines: CartLine[]): { item
 function placeLocalOrder(db: Db, input: CheckoutInput): Order {
   const store = findStore(db, input.storeId);
   const now = new Date();
-  if (!isStoreOpen(store, now)) throw new CheckoutError("A loja fechou enquanto você montava o pedido.");
+  // Agendado: vale o horário escolhido; agora: a loja precisa estar aberta.
+  const scheduled = input.scheduledFor ? new Date(input.scheduledFor) : null;
+  if (scheduled) {
+    try {
+      checkSchedule(store, scheduled, input.mode, now);
+    } catch (err) {
+      throw new CheckoutError(err instanceof Error ? err.message : "Horário inválido.");
+    }
+  } else if (!isStoreOpen(store, now)) {
+    throw new CheckoutError("A loja fechou enquanto você montava o pedido.");
+  }
   if (!input.lines.length) throw new CheckoutError("A sacola está vazia.");
 
   // O servidor nunca confia na tela: confere cliente, pagamento, itens e opções de novo.
@@ -515,11 +528,12 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
     storeId: store.id,
     number: store.nextOrderNumber++,
     createdAt: now.toISOString(),
-    promisedAt: new Date(now.getTime() + eta * 60000).toISOString(),
+    promisedAt: (scheduled ?? new Date(now.getTime() + eta * 60000)).toISOString(),
     status: "novo",
     history: [{ status: "novo", at: now.toISOString() }],
     mode: input.mode,
     customer: { name: customerName, phone: customerPhone },
+    ...(scheduled && { scheduledFor: scheduled.toISOString() }),
     delivery,
     tableNumber: input.mode === "table" ? input.tableNumber : undefined,
     items,

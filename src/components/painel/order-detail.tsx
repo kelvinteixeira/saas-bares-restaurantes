@@ -18,6 +18,7 @@ import { usePainel } from "@/components/painel/painel-context";
 import { CashClosedNotice, PaymentForm, PaymentList, type PayInput } from "@/components/painel/cash/payment-form";
 import { openSession, orderDue, orderPaid } from "@/lib/domain/cash";
 import { registerPayment } from "@/lib/store/cash";
+import { scheduledLabel } from "@/lib/domain/schedule";
 import { Modal } from "@/components/ui/modal";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
 import { attempt, useToast } from "@/components/ui/toast";
@@ -53,7 +54,12 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
         <div>
           <h2 className="font-mono text-[22px] leading-7 font-medium">{formatOrderNumber(order.number)}</h2>
           <p className="mt-1 text-sm text-muted">
-            Chegou às {formatClock(new Date(order.createdAt))} · prometido para {formatClock(new Date(order.promisedAt))}
+            Chegou às {formatClock(new Date(order.createdAt))} ·{" "}
+            {order.scheduledFor ? (
+              <strong className="font-medium text-pill-warning-ink">agendado para {scheduledLabel(order.scheduledFor, now)}</strong>
+            ) : (
+              <>prometido para {formatClock(new Date(order.promisedAt))}</>
+            )}
           </p>
         </div>
         <OrderStatusPill order={order} />

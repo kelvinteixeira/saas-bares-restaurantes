@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/painel/page-header";
 import { StoreSettings } from "@/components/painel/settings/store-settings";
-import { HoursSettings } from "@/components/painel/settings/hours-settings";
+import { HoursAndScheduling } from "@/components/painel/settings/schedule-settings";
 import { DeliverySettings } from "@/components/painel/settings/delivery-settings";
 import { PaymentSettings } from "@/components/painel/settings/payment-settings";
 import { AccountSettings } from "@/components/painel/settings/account-settings";
@@ -14,7 +14,7 @@ import { cn } from "@/lib/cn";
 
 const TABS = [
   { id: "loja", label: "Loja", view: StoreSettings },
-  { id: "horarios", label: "Horários", view: HoursSettings },
+  { id: "horarios", label: "Horários", view: HoursAndScheduling },
   { id: "atendimento", label: "Entrega e retirada", view: DeliverySettings },
   { id: "pagamento", label: "Pagamento", view: PaymentSettings },
   { id: "conta", label: "Conta", view: AccountSettings },

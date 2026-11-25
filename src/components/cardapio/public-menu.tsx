@@ -14,6 +14,7 @@ import { Pill } from "@/components/ui/pill";
 import { useToast } from "@/components/ui/toast";
 import { useNow } from "@/lib/hooks";
 import { storeStatus } from "@/lib/domain/hours";
+import { canSchedule } from "@/lib/domain/schedule";
 import { fromPrice, hasVariablePrice, lowestDeliveryFee } from "@/lib/domain/pricing";
 import { formatMoney, formatPhone, onlyDigits } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -102,7 +103,9 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
   const status = storeStatus(s, now);
   const tableMode = cart.table !== null && s.table.enabled;
   const anyMode = tableMode || s.delivery.enabled || s.pickup.enabled;
-  const canOrder = status.open && anyMode;
+  // Fechada agora, mas aceita agendar (não vale para a mesa): dá para montar a sacola e agendar.
+  const schedulable = canSchedule(s, tableMode ? "table" : null);
+  const canOrder = (status.open || schedulable) && anyMode;
   const closedLabel = !status.open ? "Loja fechada agora" : "Pedidos indisponíveis";
   const lowestFee = lowestDeliveryFee(s);
   const subtotal = cartSubtotal(cart.lines, products);
@@ -149,7 +152,9 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
           )}
           {!status.open && (
             <p className="rounded-card bg-raised px-4 py-3 text-[15px]">
-              Pode olhar o cardápio à vontade. Os pedidos abrem junto com a loja.
+              {schedulable
+                ? "Fechado agora, mas dá para agendar: monte a sacola e escolha o horário no fechamento do pedido."
+                : "Pode olhar o cardápio à vontade. Os pedidos abrem junto com a loja."}
             </p>
           )}
         </header>

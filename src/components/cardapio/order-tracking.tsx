@@ -6,6 +6,7 @@ import { Check, MessageCircle } from "lucide-react";
 import { getDb, getRemote, useDb } from "@/lib/store/db";
 import { storeBySlug } from "@/lib/store/actions";
 import { earnAmount, validPhone } from "@/lib/domain/cashback";
+import { scheduledLabel } from "@/lib/domain/schedule";
 import { isRemoteStore, loadPublicOrder, loadPublicStore, remotePending } from "@/lib/store/remote";
 import { supabaseConfigured } from "@/lib/supabase/client";
 import { BrandScope, StoreLogo, brandButton } from "@/components/cardapio/brand";
@@ -77,12 +78,17 @@ export function OrderTracking({ slug, id }: { slug: string; id: string }) {
         <h1 className="mt-1 text-[26px] leading-8 font-semibold tracking-[-0.02em] sm:text-[30px] sm:leading-9" aria-live="polite">
           {customerStatusLabel(order.status, order.mode)}
         </h1>
-        {isOpenOrder(order) && (
-          <p className="mt-2 text-[15px] text-muted">
-            Feito às {formatClock(new Date(order.createdAt))} · previsão até{" "}
-            <span className="num font-medium text-ink">{formatClock(new Date(order.promisedAt))}</span>
-          </p>
-        )}
+        {isOpenOrder(order) &&
+          (order.scheduledFor ? (
+            <p className="mt-2 text-[15px] text-muted">
+              Agendado para <span className="num font-medium text-ink">{scheduledLabel(order.scheduledFor, new Date())}</span>
+            </p>
+          ) : (
+            <p className="mt-2 text-[15px] text-muted">
+              Feito às {formatClock(new Date(order.createdAt))} · previsão até{" "}
+              <span className="num font-medium text-ink">{formatClock(new Date(order.promisedAt))}</span>
+            </p>
+          ))}
         {earned > 0 && (
           <p className="mt-3 w-fit rounded-full bg-pill-positive-bg px-3 py-1 text-sm text-pill-positive-ink">
             {order.status === "concluido" ? (
