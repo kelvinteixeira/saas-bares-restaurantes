@@ -1,4 +1,5 @@
-import type { FiscalDocument, FiscalEnvironment, Order, Payment, Product, Store, StoreFiscal, TaxRegime } from "@/lib/types";
+import type { FiscalDocument, FiscalEnvironment, Order, Payment, Product, Store, StoreFiscal, Tab, TaxRegime } from "@/lib/types";
+import { tabOrders, tabTotals } from "@/lib/domain/tabs";
 import { onlyDigits } from "@/lib/format";
 
 // NFC-e (modelo 65). Aqui ficam as regras que não dependem do emissor fiscal: conferir os dados,
@@ -120,10 +121,85 @@ export function nfceProblems(order: Order, fiscal: StoreFiscal | null | undefine
   return p;
 }
 
+type Emitter = Pick<Store, "name" | "address">;
+
+/** Itens da nota com os códigos do produto ou os padrões da loja. Itens iguais viram uma linha só. */
+function nfceLines(items: Order["items"], products: Pick<Product, "id" | "fiscal">[], fiscal: StoreFiscal): NfceItem[] {
+  const lines: NfceItem[] = [];
+  for (const it of items) {
+    const f = products.find((p) => p.id === it.productId)?.fiscal ?? {};
+    const options = it.options.map((o) => o.optionName).join(", ");
+    const description = (options ? `${it.name} (${options})` : it.name).slice(0, 120);
+    const same = lines.find((l) => l.code === it.productId && l.unitPrice === it.unitPrice && l.description === description);
+    if (same) {
+      same.quantity += it.quantity;
+      same.total += it.unitPrice * it.quantity;
+      continue;
+    }
+    lines.push({
+      code: it.productId.slice(0, 60) || String(lines.length + 1),
+      description,
+      ncm: f.ncm ?? fiscal.defaultNcm,
+      cfop: f.cfop ?? fiscal.defaultCfop,
+      taxCode: f.taxCode ?? fiscal.defaultTaxCode,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      total: it.unitPrice * it.quantity,
+      discount: 0,
+    });
+  }
+  return lines;
+}
+
+/**
+ * Desconto (cupom e cashback) rateado nos itens, proporcional; o resto dos centavos vai para o último.
+ * O que passar do valor dos itens (entrega grátis num pedido pequeno) sai das outras despesas.
+ */
+function applyDiscount(lines: NfceItem[], wanted: number, otherCharges: number) {
+  const products$ = lines.reduce((s, l) => s + l.total, 0);
+  let discount = wanted;
+  let other = otherCharges;
+  if (discount > products$) {
+    const fromOther = Math.min(discount - products$, other);
+    other -= fromOther;
+    discount -= fromOther;
+  }
+  discount = Math.min(discount, products$);
+  let left = discount;
+  lines.forEach((l, i) => {
+    const share = i === lines.length - 1 ? left : Math.min(left, Math.floor((discount * l.total) / Math.max(products$, 1)));
+    l.discount = Math.min(share, l.total);
+    left -= l.discount;
+  });
+  return { discount, otherCharges: other, total: products$ - discount + other };
+}
+
+/** Pagamentos registrados no caixa (com troco). Precisam cobrir o total. */
+function paidWith(paid: Payment[], total: number, unpaid: string) {
+  const byCode = new Map<NfcePaymentCode, number>();
+  for (const p of paid) byCode.set(PAYMENT_CODE[p.method], (byCode.get(PAYMENT_CODE[p.method]) ?? 0) + p.amount + p.changeGiven);
+  const payments = [...byCode].map(([code, amount]) => ({ code, amount }));
+  const change = paid.reduce((s, p) => s + p.changeGiven, 0);
+  if (payments.reduce((s, p) => s + p.amount, 0) - change < total) throw new FiscalError(unpaid);
+  return { payments, change };
+}
+
+function emitterOf(fiscal: StoreFiscal, store: Emitter): NfcePayload["emitter"] {
+  return {
+    cnpj: fiscal.cnpj,
+    ie: fiscal.ie,
+    legalName: fiscal.legalName,
+    regime: fiscal.regime,
+    tradeName: store.name,
+    state: store.address.state.toUpperCase(),
+    city: store.address.city,
+  };
+}
+
 /** Monta a NFC-e do pedido. Os pagamentos registrados no caixa valem; sem eles, a forma escolhida no pedido. */
 export function buildNfce(input: {
   order: Order;
-  store: Pick<Store, "name" | "address">;
+  store: Emitter;
   fiscal: StoreFiscal;
   products: Pick<Product, "id" | "fiscal">[];
   payments: Payment[];
@@ -134,51 +210,15 @@ export function buildNfce(input: {
   const problems = nfceProblems(order, fiscal, input.cpf);
   if (problems.length) throw new FiscalError(problems[0]);
 
-  const lines = order.items.map((it, i) => {
-    const f = products.find((p) => p.id === it.productId)?.fiscal ?? {};
-    const options = it.options.map((o) => o.optionName).join(", ");
-    return {
-      code: it.productId.slice(0, 60) || String(i + 1),
-      description: (options ? `${it.name} (${options})` : it.name).slice(0, 120),
-      ncm: f.ncm ?? fiscal.defaultNcm,
-      cfop: f.cfop ?? fiscal.defaultCfop,
-      taxCode: f.taxCode ?? fiscal.defaultTaxCode,
-      quantity: it.quantity,
-      unitPrice: it.unitPrice,
-      total: it.unitPrice * it.quantity,
-      discount: 0,
-    };
-  });
-  const products$ = lines.reduce((s, l) => s + l.total, 0);
-  let otherCharges = order.deliveryFee;
-  // Desconto do pedido = cupom + cashback. O que passar dos itens (entrega grátis) sai da taxa de entrega.
-  let discount = (order.discount ?? 0) + (order.cashbackUsed ?? 0);
-  if (discount > products$) {
-    const fromFee = Math.min(discount - products$, otherCharges);
-    otherCharges -= fromFee;
-    discount -= fromFee;
-  }
-  discount = Math.min(discount, products$);
-  // Rateio proporcional; o resto dos centavos vai para o último item com valor.
-  let left = discount;
-  lines.forEach((l, i) => {
-    const share = i === lines.length - 1 ? left : Math.min(left, Math.floor((discount * l.total) / Math.max(products$, 1)));
-    l.discount = Math.min(share, l.total);
-    left -= l.discount;
-  });
-  const total = products$ - discount + otherCharges;
+  const items = nfceLines(order.items, products, fiscal);
+  const { discount, otherCharges, total } = applyDiscount(items, (order.discount ?? 0) + (order.cashbackUsed ?? 0), order.deliveryFee);
   if (total !== order.total) throw new FiscalError("O total da nota não bate com o do pedido. Confira os itens.");
 
   const paid = input.payments.filter((p) => p.orderId === order.id);
   let payments: NfcePayload["payments"];
   let change = 0;
   if (paid.length) {
-    const byCode = new Map<NfcePaymentCode, number>();
-    for (const p of paid) byCode.set(PAYMENT_CODE[p.method], (byCode.get(PAYMENT_CODE[p.method]) ?? 0) + p.amount + p.changeGiven);
-    payments = [...byCode].map(([code, amount]) => ({ code, amount }));
-    change = paid.reduce((s, p) => s + p.changeGiven, 0);
-    const covered = payments.reduce((s, p) => s + p.amount, 0) - change;
-    if (covered < total) throw new FiscalError("O pedido ainda não foi pago por inteiro no caixa.");
+    ({ payments, change } = paidWith(paid, total, "O pedido ainda não foi pago por inteiro no caixa."));
   } else if (order.payment.method === "tab") {
     throw new FiscalError("Pedido de mesa sai na nota da comanda.");
   } else {
@@ -191,18 +231,70 @@ export function buildNfce(input: {
     reference: order.id,
     environment: fiscal.environment,
     issuedAt: now.toISOString(),
-    emitter: {
-      cnpj: fiscal.cnpj,
-      ie: fiscal.ie,
-      legalName: fiscal.legalName,
-      regime: fiscal.regime,
-      tradeName: store.name,
-      state: store.address.state.toUpperCase(),
-      city: store.address.city,
-    },
+    emitter: emitterOf(fiscal, store),
     presence: order.mode === "delivery" ? 4 : 1,
     consumerCpf: input.cpf ? onlyDigits(input.cpf) : undefined,
-    items: lines,
+    items,
+    otherCharges,
+    discount,
+    total,
+    payments,
+    change,
+  };
+}
+
+/** O que impede a nota da comanda (vazio = pode emitir). */
+export function tabNfceProblems(tab: Pick<Tab, "status">, total: number, fiscal: StoreFiscal | null | undefined, cpf?: string): string[] {
+  const p: string[] = [];
+  if (!fiscal || !fiscal.enabled) p.push("A emissão de NFC-e está desligada nas configurações fiscais.");
+  if (tab.status !== "closed") p.push("Feche a mesa antes de emitir a nota.");
+  if (total <= 0) p.push("Comanda sem valor não tem nota.");
+  if (cpf && !validCpf(cpf)) p.push("Confira o CPF do cliente.");
+  return p;
+}
+
+/**
+ * NFC-e da comanda da mesa: todos os pedidos não cancelados numa nota só, a taxa de serviço como
+ * outras despesas e os pagamentos registrados na comanda (precisam cobrir o total).
+ */
+export function buildTabNfce(input: {
+  tab: Tab;
+  orders: Order[];
+  store: Emitter;
+  fiscal: StoreFiscal;
+  products: Pick<Product, "id" | "fiscal">[];
+  payments: Payment[];
+  cpf?: string;
+  now: Date;
+}): NfcePayload {
+  const { tab, fiscal, now } = input;
+  const totals = tabTotals(tab, input.orders);
+  const problems = tabNfceProblems(tab, totals.total, fiscal, input.cpf);
+  if (problems.length) throw new FiscalError(problems[0]);
+
+  const valid = tabOrders(tab, input.orders).filter((o) => o.status !== "cancelado");
+  const items = nfceLines(
+    valid.flatMap((o) => o.items),
+    input.products,
+    fiscal,
+  );
+  const wanted = valid.reduce((s, o) => s + (o.discount ?? 0) + (o.cashbackUsed ?? 0), 0);
+  const { discount, otherCharges, total } = applyDiscount(items, wanted, totals.fee);
+  if (total !== totals.total) throw new FiscalError("O total da nota não bate com o da comanda. Confira os pedidos.");
+  const { payments, change } = paidWith(
+    input.payments.filter((p) => p.tabId === tab.id),
+    total,
+    "A comanda ainda não foi paga por inteiro no caixa.",
+  );
+
+  return {
+    reference: tab.id,
+    environment: fiscal.environment,
+    issuedAt: now.toISOString(),
+    emitter: emitterOf(fiscal, input.store),
+    presence: 1,
+    consumerCpf: input.cpf ? onlyDigits(input.cpf) : undefined,
+    items,
     otherCharges,
     discount,
     total,
@@ -239,6 +331,17 @@ export function accessKey(p: { state: string; issuedAt: Date; cnpj: string; seri
 }
 
 // ---------- notas do pedido ----------
+
+/** Do que é a nota: um pedido (balcão, retirada, entrega) ou a comanda de uma mesa. */
+export type NfceTarget = { orderId: string; tabId?: undefined } | { tabId: string; orderId?: undefined };
+
+/** A nota que vale para o pedido ou a comanda: a ativa (processando ou autorizada); senão a última. */
+export function documentFor(docs: FiscalDocument[], target: NfceTarget): FiscalDocument | undefined {
+  const mine = docs
+    .filter((d) => (target.orderId ? d.orderId === target.orderId : d.tabId === target.tabId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return mine.find((d) => d.status === "processing" || d.status === "authorized") ?? mine[0];
+}
 
 /** A nota que vale para o pedido: a ativa (processando ou autorizada); senão a última. */
 export function orderDocument(docs: FiscalDocument[], orderId: string): FiscalDocument | undefined {

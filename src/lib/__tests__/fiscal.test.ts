@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Order, Payment, StoreFiscal } from "@/lib/types";
+import type { Order, Payment, StoreFiscal, Tab } from "@/lib/types";
 import {
   accessKey,
   accessKeyDigit,
   buildNfce,
+  buildTabNfce,
+  documentFor,
   canCancelNfce,
   fiscalConfigProblems,
   nfceProblems,
@@ -141,5 +143,48 @@ describe("NFC-e", () => {
     expect(canCancelNfce(ok, new Date("2026-11-25T12:40:00Z"))).toBe(false);
     expect(validCancelReason("erro")).toBe(false);
     expect(validCancelReason("Cliente desistiu do pedido")).toBe(true);
+  });
+});
+
+describe("NFC-e da comanda da mesa", () => {
+  const tab: Tab = { id: "t1", storeId: "s", tableNumber: 4, status: "closed", openedAt: "", serviceFeeRate: 10, serviceFeeRemoved: false };
+  const tableOrder = (id: string, over: Partial<Order> = {}): Order =>
+    order({ id, mode: "table", tabId: "t1", deliveryFee: 0, payment: { method: "tab" }, status: "concluido", ...over });
+  const orders = [
+    tableOrder("a", { items: [{ productId: "p-isca", name: "Isca de peixe", unitPrice: 4200, quantity: 1, options: [] }], subtotal: 4200, total: 4200 }),
+    tableOrder("b", { items: [{ productId: "p-isca", name: "Isca de peixe", unitPrice: 4200, quantity: 1, options: [] }], subtotal: 4200, discount: 400, total: 3800 }),
+    tableOrder("c", { status: "cancelado", items: [{ productId: "p-chopp", name: "Chopp", unitPrice: 1200, quantity: 5, options: [] }], subtotal: 6000, total: 6000 }),
+  ];
+  const pay = (method: Payment["method"], amount: number, changeGiven = 0): Payment => ({ id: method, storeId: "s", cashSessionId: "c", tabId: "t1", method, amount, changeGiven, createdAt: "" });
+  // Consumo 8400 − 400 = 8000; taxa 10% = 800; total 8800.
+
+  it("junta os pedidos (sem os cancelados), taxa de serviço como outras despesas, pagamentos da comanda", () => {
+    const n = buildTabNfce({ tab, orders, store, fiscal, products, payments: [pay("credit", 5000), pay("cash", 3800, 1200)], now });
+    expect(n.items).toHaveLength(1);
+    expect(n.items[0]).toMatchObject({ description: "Isca de peixe", quantity: 2, total: 8400, discount: 400 });
+    expect(n).toMatchObject({ reference: "t1", presence: 1, discount: 400, otherCharges: 800, total: 8800, change: 1200 });
+    expect(n.payments).toEqual([
+      { code: "03", amount: 5000 },
+      { code: "01", amount: 5000 },
+    ]);
+    const noFee = buildTabNfce({ tab: { ...tab, serviceFeeRemoved: true }, orders, store, fiscal, products, payments: [pay("pix", 8000)], now });
+    expect(noFee).toMatchObject({ otherCharges: 0, total: 8000 });
+  });
+
+  it("só com a mesa fechada e paga por inteiro", () => {
+    expect(() => buildTabNfce({ tab: { ...tab, status: "open" }, orders, store, fiscal, products, payments: [pay("pix", 8800)], now })).toThrow("Feche a mesa");
+    expect(() => buildTabNfce({ tab, orders, store, fiscal, products, payments: [pay("pix", 5000)], now })).toThrow("paga por inteiro");
+    expect(() => buildTabNfce({ tab, orders, store, fiscal: { ...fiscal, enabled: false }, products, payments: [], now })).toThrow("desligada");
+  });
+
+  it("acha a nota da comanda ou do pedido", () => {
+    const base = { storeId: "s", environment: "homologacao" as const, provider: "simulador", total: 1, createdAt: "2026-11-25T12:00:00Z", updatedAt: "" };
+    const docs = [
+      { ...base, id: "1", tabId: "t1", status: "authorized" as const },
+      { ...base, id: "2", orderId: "o1", status: "rejected" as const },
+    ];
+    expect(documentFor(docs, { tabId: "t1" })?.id).toBe("1");
+    expect(documentFor(docs, { orderId: "o1" })?.id).toBe("2");
+    expect(documentFor(docs, { tabId: "outra" })).toBeUndefined();
   });
 });

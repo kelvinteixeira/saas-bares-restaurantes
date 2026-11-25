@@ -567,6 +567,8 @@ export interface FiscalDocumentRow {
   id: string;
   store_id: string;
   order_id: string | null;
+  /** Só existe depois do SQL 013. */
+  tab_id?: string | null;
   environment: FiscalDocument["environment"];
   provider: string;
   status: FiscalDocument["status"];
@@ -589,6 +591,7 @@ export function rowToFiscalDocument(r: FiscalDocumentRow): FiscalDocument {
     id: r.id,
     storeId: r.store_id,
     orderId: r.order_id ?? undefined,
+    tabId: r.tab_id ?? undefined,
     environment: r.environment,
     provider: r.provider,
     status: r.status,

@@ -1,6 +1,6 @@
-import { emitOrderNfce, getProvider, HttpError } from "@/lib/fiscal/server";
+import { emitOrderNfce, emitTabNfce, getProvider, HttpError } from "@/lib/fiscal/server";
 
-// POST /api/fiscal/nfce  { orderId, cpf? }  → a nota (FiscalDocument)
+// POST /api/fiscal/nfce  { orderId, cpf? } ou { tabId, cpf? }  → a nota (FiscalDocument)
 // GET  /api/fiscal/nfce                    → qual emissor está ligado (para o painel avisar "simulador")
 // O login vai no cabeçalho Authorization: Bearer <token da sessão do Supabase>.
 
@@ -23,10 +23,12 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => null)) as { orderId?: unknown; cpf?: unknown } | null;
-    if (!body || typeof body.orderId !== "string") return Response.json({ error: "Pedido não informado." }, { status: 400 });
-    const cpf = typeof body.cpf === "string" && body.cpf.trim() ? body.cpf.trim() : undefined;
-    const doc = await emitOrderNfce(bearer(req), { orderId: body.orderId, cpf });
+    const body = (await req.json().catch(() => null)) as { orderId?: unknown; tabId?: unknown; cpf?: unknown } | null;
+    const cpf = typeof body?.cpf === "string" && body.cpf.trim() ? body.cpf.trim() : undefined;
+    let doc;
+    if (typeof body?.orderId === "string") doc = await emitOrderNfce(bearer(req), { orderId: body.orderId, cpf });
+    else if (typeof body?.tabId === "string") doc = await emitTabNfce(bearer(req), { tabId: body.tabId, cpf });
+    else return Response.json({ error: "Pedido ou comanda não informados." }, { status: 400 });
     return Response.json({ document: doc });
   } catch (err) {
     return fail(err);

@@ -4,7 +4,7 @@
 // confere tudo de novo e fala com o emissor. Loja local (demonstração): o simulador, aqui mesmo.
 
 import type { FiscalDocument, StoreFiscal } from "@/lib/types";
-import { buildNfce, canCancelNfce, fiscalConfigProblems, FiscalError, nfceProblems, validCancelReason } from "@/lib/domain/fiscal";
+import { buildNfce, buildTabNfce, canCancelNfce, documentFor, fiscalConfigProblems, FiscalError, validCancelReason, type NfceTarget } from "@/lib/domain/fiscal";
 import { simulator } from "@/lib/fiscal/simulator";
 import { newId } from "@/lib/ids";
 import { onlyDigits } from "@/lib/format";
@@ -64,28 +64,34 @@ async function callServer(path: string, body: unknown): Promise<FiscalDocument> 
   return json.document;
 }
 
-/** Emite a NFC-e de um pedido (balcão, retirada ou entrega). CPF na nota é opcional. */
-export async function emitNfce(orderId: string, cpf?: string): Promise<FiscalDocument> {
+/** Emite a NFC-e de um pedido (balcão, retirada, entrega) ou da comanda de uma mesa. CPF na nota é opcional. */
+export async function emitNfce(target: NfceTarget, cpf?: string): Promise<FiscalDocument> {
   const db = getDb();
-  const order = db.orders.find((o) => o.id === orderId);
-  if (!order) throw new FiscalError("Pedido não encontrado.");
-  if (isRemoteStore(order.storeId)) return callServer("/api/fiscal/nfce", { orderId, cpf: cpf ? onlyDigits(cpf) : undefined });
+  const order = target.orderId ? db.orders.find((o) => o.id === target.orderId) : undefined;
+  const tab = target.tabId ? (db.tabs ?? []).find((t) => t.id === target.tabId) : undefined;
+  const storeId = order?.storeId ?? tab?.storeId;
+  if (!storeId) throw new FiscalError(target.orderId ? "Pedido não encontrado." : "Comanda não encontrada.");
+  const digits = cpf ? onlyDigits(cpf) : undefined;
+  if (isRemoteStore(storeId)) return callServer("/api/fiscal/nfce", target.orderId ? { orderId: target.orderId, cpf: digits } : { tabId: target.tabId, cpf: digits });
 
-  const fiscal = (db.storeFiscal ?? []).find((f) => f.storeId === order.storeId);
-  const problems = nfceProblems(order, fiscal, cpf);
-  if (problems.length) throw new FiscalError(problems[0]);
-  const active = (db.fiscalDocs ?? []).some((d) => d.orderId === orderId && (d.status === "processing" || d.status === "authorized"));
-  if (active) throw new FiscalError("Este pedido já tem uma nota emitida ou em processamento.");
-  const store = db.stores.find((s) => s.id === order.storeId)!;
-  const payload = buildNfce({ order, store, fiscal: fiscal!, products: db.products, payments: db.payments ?? [], cpf, now: new Date() });
-  const number = Math.max(0, ...(db.fiscalDocs ?? []).filter((d) => d.storeId === order.storeId).map((d) => d.number ?? 0)) + 1;
+  const fiscal = (db.storeFiscal ?? []).find((f) => f.storeId === storeId);
+  if (!fiscal) throw new FiscalError("A emissão de NFC-e está desligada nas configurações fiscais.");
+  const active = documentFor(db.fiscalDocs ?? [], target);
+  if (active && (active.status === "processing" || active.status === "authorized")) {
+    throw new FiscalError(order ? "Este pedido já tem uma nota emitida ou em processamento." : "Esta comanda já tem uma nota emitida ou em processamento.");
+  }
+  const store = db.stores.find((s) => s.id === storeId)!;
+  const base = { store, fiscal, products: db.products, payments: db.payments ?? [], cpf: digits, now: new Date() };
+  const payload = order ? buildNfce({ ...base, order }) : buildTabNfce({ ...base, tab: tab!, orders: db.orders });
+  const number = Math.max(0, ...(db.fiscalDocs ?? []).filter((d) => d.storeId === storeId).map((d) => d.number ?? 0)) + 1;
   const result = await simulator.emit(payload, { number, series: 1 });
   const now = new Date().toISOString();
   const doc: FiscalDocument = {
     id: newId(),
-    storeId: order.storeId,
-    orderId,
-    environment: fiscal!.environment,
+    storeId,
+    orderId: order?.id,
+    tabId: tab?.id,
+    environment: fiscal.environment,
     provider: simulator.name,
     status: result.status,
     number: result.number,

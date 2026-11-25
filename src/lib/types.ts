@@ -149,6 +149,8 @@ export interface FiscalDocument {
   id: string;
   storeId: string;
   orderId?: string;
+  /** Nota da comanda da mesa (SQL 013). */
+  tabId?: string;
   environment: FiscalEnvironment;
   /** "simulador" = sem valor fiscal. */
   provider: string;

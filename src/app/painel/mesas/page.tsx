@@ -4,12 +4,13 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChefHat, HandPlatter, ReceiptText } from "lucide-react";
-import { tableMap, type TableState } from "@/lib/domain/tabs";
-import { formatDuration, formatMoney } from "@/lib/format";
+import { tableMap, tabTotals, type TableState } from "@/lib/domain/tabs";
+import { formatClock, formatDuration, formatMoney } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { usePainel } from "@/components/painel/painel-context";
 import { PageHeader } from "@/components/painel/page-header";
 import { QrCodes } from "@/components/painel/mesas/qr-codes";
+import { TabNfce } from "@/components/painel/order-nfce";
 
 export default function MesasPage() {
   return (
@@ -77,7 +78,38 @@ function Salao() {
           ))}
         </ul>
       )}
+      <ClosedToday />
     </>
+  );
+}
+
+/** Mesas fechadas hoje, para o caixa conferir e emitir a NFC-e da comanda. */
+function ClosedToday() {
+  const { db, store, now, role } = usePainel();
+  if (role !== "owner" && role !== "manager" && role !== "cashier") return null;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const closed = (db.tabs ?? [])
+    .filter((t) => t.storeId === store.id && t.status === "closed" && t.closedAt && new Date(t.closedAt).getTime() >= start)
+    .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""));
+  if (!closed.length) return null;
+  return (
+    <section className="mt-10">
+      <h2 className="text-[15px] font-semibold">Fechadas hoje</h2>
+      <ul className="mt-3 grid gap-3 lg:grid-cols-2">
+        {closed.map((tab) => (
+          <li key={tab.id} className="rounded-card border border-line p-3.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-medium">Mesa {tab.tableNumber}</span>
+              <span className="num text-sm">
+                <span className="text-muted">fechada às {formatClock(new Date(tab.closedAt!))} · </span>
+                <span className="font-semibold">{formatMoney(tabTotals(tab, db.orders).total)}</span>
+              </span>
+            </div>
+            <TabNfce tab={tab} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

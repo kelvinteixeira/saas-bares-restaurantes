@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { FileText } from "lucide-react";
-import type { Order } from "@/lib/types";
-import { canCancelNfce, formatAccessKey, formatCpf, orderDocument, validCancelReason, validCpf } from "@/lib/domain/fiscal";
+import type { Order, Tab } from "@/lib/types";
+import { canCancelNfce, documentFor, formatAccessKey, formatCpf, validCancelReason, validCpf, type NfceTarget } from "@/lib/domain/fiscal";
 import { cancelNfce, emitNfce } from "@/lib/store/fiscal";
 import { formatClock, onlyDigits } from "@/lib/format";
 import { usePainel } from "@/components/painel/painel-context";
@@ -23,6 +23,16 @@ const STATUS = {
 
 /** NFC-e do pedido (balcão, retirada e entrega). Só para quem mexe no caixa e com a emissão ligada. */
 export function OrderNfce({ order }: { order: Order }) {
+  if (order.tabId || order.mode === "table") return null;
+  return <NfcePanel target={{ orderId: order.id }} canEmit={order.status !== "cancelado"} />;
+}
+
+/** NFC-e da comanda da mesa: sai depois que a mesa fecha (paga). */
+export function TabNfce({ tab }: { tab: Tab }) {
+  return <NfcePanel target={{ tabId: tab.id }} canEmit={tab.status === "closed"} />;
+}
+
+function NfcePanel({ target, canEmit }: { target: NfceTarget; canEmit: boolean }) {
   const { db, store, role, now } = usePainel();
   const toast = useToast();
   const [cpf, setCpf] = useState("");
@@ -31,10 +41,9 @@ export function OrderNfce({ order }: { order: Order }) {
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
   const fiscal = (db.storeFiscal ?? []).find((f) => f.storeId === store.id);
-  const doc = orderDocument(db.fiscalDocs ?? [], order.id);
+  const doc = documentFor(db.fiscalDocs ?? [], target);
   if (role !== "owner" && role !== "manager" && role !== "cashier") return null;
-  if (order.tabId || order.mode === "table") return null;
-  if (!doc && (!fiscal?.enabled || order.status === "cancelado")) return null;
+  if (!doc && (!fiscal?.enabled || !canEmit)) return null;
 
   const active = doc && (doc.status === "authorized" || doc.status === "processing");
   const cpfDigits = onlyDigits(cpf);
@@ -42,7 +51,7 @@ export function OrderNfce({ order }: { order: Order }) {
 
   async function emit() {
     setBusy(true);
-    const result = await attempt(toast, () => emitNfce(order.id, cpfDigits || undefined));
+    const result = await attempt(toast, () => emitNfce(target, cpfDigits || undefined));
     setBusy(false);
     if (result) {
       toast(result.status === "authorized" ? `NFC-e ${result.number} autorizada` : `NFC-e ${STATUS[result.status].label.toLowerCase()}`, result.status === "authorized" ? undefined : "negative");
@@ -90,7 +99,7 @@ export function OrderNfce({ order }: { order: Order }) {
         </div>
       )}
 
-      {!active && fiscal?.enabled && order.status !== "cancelado" && (
+      {!active && fiscal?.enabled && canEmit && (
         <div className="mt-2">
           {askCpf && (
             <label className="mb-2 flex flex-col gap-1 text-[13px]">

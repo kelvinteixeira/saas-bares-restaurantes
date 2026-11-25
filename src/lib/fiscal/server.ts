@@ -3,7 +3,7 @@
 // SUPABASE_SERVICE_ROLE_KEY e o token do emissor não têm NEXT_PUBLIC_: nunca vão para o navegador.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { buildNfce, canCancelNfce, FiscalError, nfceProblems, validCancelReason } from "@/lib/domain/fiscal";
+import { buildNfce, buildTabNfce, canCancelNfce, FiscalError, nfceProblems, validCancelReason, type NfcePayload } from "@/lib/domain/fiscal";
 import type { FiscalProvider } from "@/lib/fiscal/provider";
 import { simulator } from "@/lib/fiscal/simulator";
 import {
@@ -13,6 +13,8 @@ import {
   rowToProduct,
   rowToStore,
   rowToStoreFiscal,
+  rowToTab,
+  type TabRow,
   type FiscalDocumentRow,
   type OrderRow,
   type PaymentRow,
@@ -20,7 +22,7 @@ import {
   type StoreFiscalRow,
   type StoreRow,
 } from "@/lib/store/mappers";
-import type { FiscalDocument } from "@/lib/types";
+import type { FiscalDocument, StoreFiscal } from "@/lib/types";
 
 if (typeof window !== "undefined") throw new Error("src/lib/fiscal/server.ts é só do servidor.");
 
@@ -76,56 +78,57 @@ async function requireCashier(sb: SupabaseClient, storeId: string, userId: strin
 const missingTable = (code?: string) => code === "PGRST205" || code === "42P01";
 const SETUP = "A NFC-e ainda não está ligada no banco. Rode o arquivo supabase/migrations/012_nfce.sql no Supabase.";
 
-/** Emite a NFC-e de um pedido (balcão, retirada ou entrega). */
-export async function emitOrderNfce(token: string | null, input: { orderId: string; cpf?: string }): Promise<FiscalDocument> {
-  const { sb, userId } = await asUser(token);
-  const { data: orderRow } = await sb.from("orders").select("*").eq("id", input.orderId).maybeSingle<OrderRow>();
-  if (!orderRow) throw new HttpError(404, "Pedido não encontrado.");
-  const order = rowToOrder(orderRow);
-  await requireCashier(sb, order.storeId, userId);
+const SETUP_TAB = "A nota da mesa ainda não está ligada no banco. Rode o arquivo supabase/migrations/013_nfce_mesa.sql no Supabase.";
 
-  const [fiscalRes, storeRes, productsRes, paymentsRes] = await Promise.all([
-    sb.from("store_fiscal").select("*").eq("store_id", order.storeId).maybeSingle<StoreFiscalRow>(),
-    sb.from("stores").select("*").eq("id", order.storeId).single<StoreRow>(),
-    sb.from("products").select("*").eq("store_id", order.storeId),
-    sb.from("payments").select("*").eq("order_id", order.id),
+/** Lê os dados fiscais e a loja, e confere se o emissor pode emitir no ambiente escolhido. */
+async function fiscalContext(sb: SupabaseClient, storeId: string) {
+  const [fiscalRes, storeRes, productsRes] = await Promise.all([
+    sb.from("store_fiscal").select("*").eq("store_id", storeId).maybeSingle<StoreFiscalRow>(),
+    sb.from("stores").select("*").eq("id", storeId).single<StoreRow>(),
+    sb.from("products").select("*").eq("store_id", storeId),
   ]);
   if (missingTable(fiscalRes.error?.code)) throw new HttpError(409, SETUP);
-  const fiscal = fiscalRes.data ? rowToStoreFiscal(fiscalRes.data) : null;
-  const problems = nfceProblems(order, fiscal, input.cpf);
-  if (problems.length) throw new HttpError(422, problems[0]);
-  if (!fiscal || storeRes.error || !storeRes.data) {
+  if (storeRes.error || !storeRes.data) {
     console.error("NFC-e: ler a loja", storeRes.error?.code, storeRes.error?.message);
     throw new HttpError(500, "Não foi possível ler a loja.");
   }
+  return {
+    fiscal: fiscalRes.data ? rowToStoreFiscal(fiscalRes.data) : null,
+    store: rowToStore(storeRes.data),
+    products: ((productsRes.data ?? []) as ProductRow[]).map(rowToProduct),
+  };
+}
 
+function checkProvider(fiscal: StoreFiscal): FiscalProvider {
   const provider = getProvider();
   if (fiscal.environment === "producao" && !provider.production) {
     throw new HttpError(422, "O emissor fiscal ainda não foi escolhido: a emissão em produção fica bloqueada. Use homologação.");
   }
+  return provider;
+}
 
-  let payload;
+function build<T>(fn: () => T): T {
   try {
-    payload = buildNfce({
-      order,
-      store: rowToStore(storeRes.data),
-      fiscal,
-      products: ((productsRes.data ?? []) as ProductRow[]).map(rowToProduct),
-      payments: ((paymentsRes.data ?? []) as PaymentRow[]).map(rowToPayment),
-      cpf: input.cpf,
-      now: new Date(),
-    });
+    return fn();
   } catch (err) {
     if (err instanceof FiscalError) throw new HttpError(422, err.message);
     throw err;
   }
+}
 
-  // Reserva a nota (o índice único barra duas notas ativas para o mesmo pedido) e o número.
+/** Reserva a nota (o índice único barra duas notas ativas para o mesmo pedido ou comanda), chama o emissor e grava. */
+async function reserveAndEmit(
+  storeId: string,
+  target: { order_id: string } | { tab_id: string },
+  fiscal: StoreFiscal,
+  provider: FiscalProvider,
+  payload: NfcePayload,
+): Promise<FiscalDocument> {
   const db = admin();
   const { data: last } = await db
     .from("fiscal_documents")
     .select("number")
-    .eq("store_id", order.storeId)
+    .eq("store_id", storeId)
     .eq("environment", fiscal.environment)
     .eq("provider", provider.name)
     .not("number", "is", null)
@@ -136,8 +139,8 @@ export async function emitOrderNfce(token: string | null, input: { orderId: stri
   const { data: reserved, error: reserveError } = await db
     .from("fiscal_documents")
     .insert({
-      store_id: order.storeId,
-      order_id: order.id,
+      store_id: storeId,
+      ...target,
       environment: fiscal.environment,
       provider: provider.name,
       status: "processing",
@@ -146,8 +149,13 @@ export async function emitOrderNfce(token: string | null, input: { orderId: stri
     })
     .select()
     .single<FiscalDocumentRow>();
-  if (reserveError?.code === "23505") throw new HttpError(409, "Este pedido já tem uma nota emitida ou em processamento.");
+  const isTab = "tab_id" in target;
+  if (reserveError?.code === "23505") {
+    throw new HttpError(409, isTab ? "Esta comanda já tem uma nota emitida ou em processamento." : "Este pedido já tem uma nota emitida ou em processamento.");
+  }
   if (missingTable(reserveError?.code)) throw new HttpError(409, SETUP);
+  // Coluna tab_id ainda não existe (SQL 013).
+  if (isTab && (reserveError?.code === "PGRST204" || reserveError?.code === "42703")) throw new HttpError(409, SETUP_TAB);
   if (reserveError || !reserved) {
     console.error("NFC-e: reservar a nota", reserveError?.code, reserveError?.message);
     throw new HttpError(500, "Não foi possível registrar a nota.");
@@ -181,6 +189,65 @@ export async function emitOrderNfce(token: string | null, input: { orderId: stri
     throw new HttpError(500, "A nota foi enviada, mas não deu para gravar a resposta. Confira no emissor.");
   }
   return rowToFiscalDocument(saved);
+}
+
+/** Emite a NFC-e de um pedido (balcão, retirada ou entrega). */
+export async function emitOrderNfce(token: string | null, input: { orderId: string; cpf?: string }): Promise<FiscalDocument> {
+  const { sb, userId } = await asUser(token);
+  const { data: orderRow } = await sb.from("orders").select("*").eq("id", input.orderId).maybeSingle<OrderRow>();
+  if (!orderRow) throw new HttpError(404, "Pedido não encontrado.");
+  const order = rowToOrder(orderRow);
+  await requireCashier(sb, order.storeId, userId);
+
+  const ctx = await fiscalContext(sb, order.storeId);
+  const problems = nfceProblems(order, ctx.fiscal, input.cpf);
+  if (problems.length || !ctx.fiscal) throw new HttpError(422, problems[0] ?? "Configure os dados fiscais.");
+  const fiscal = ctx.fiscal;
+  const provider = checkProvider(fiscal);
+  const { data: payments } = await sb.from("payments").select("*").eq("order_id", order.id);
+  const payload = build(() =>
+    buildNfce({
+      order,
+      store: ctx.store,
+      fiscal,
+      products: ctx.products,
+      payments: ((payments ?? []) as PaymentRow[]).map(rowToPayment),
+      cpf: input.cpf,
+      now: new Date(),
+    }),
+  );
+  return reserveAndEmit(order.storeId, { order_id: order.id }, fiscal, provider, payload);
+}
+
+/** Emite a NFC-e da comanda de uma mesa (fechada e paga). */
+export async function emitTabNfce(token: string | null, input: { tabId: string; cpf?: string }): Promise<FiscalDocument> {
+  const { sb, userId } = await asUser(token);
+  const { data: tabRow } = await sb.from("tabs").select("*").eq("id", input.tabId).maybeSingle<TabRow>();
+  if (!tabRow) throw new HttpError(404, "Comanda não encontrada.");
+  const tab = rowToTab(tabRow);
+  await requireCashier(sb, tab.storeId, userId);
+
+  const ctx = await fiscalContext(sb, tab.storeId);
+  if (!ctx.fiscal) throw new HttpError(422, "A emissão de NFC-e está desligada nas configurações fiscais.");
+  const fiscal = ctx.fiscal;
+  const [ordersRes, paymentsRes] = await Promise.all([
+    sb.from("orders").select("*").eq("tab_id", tab.id),
+    sb.from("payments").select("*").eq("tab_id", tab.id),
+  ]);
+  const payload = build(() =>
+    buildTabNfce({
+      tab,
+      orders: ((ordersRes.data ?? []) as OrderRow[]).map(rowToOrder),
+      store: ctx.store,
+      fiscal,
+      products: ctx.products,
+      payments: ((paymentsRes.data ?? []) as PaymentRow[]).map(rowToPayment),
+      cpf: input.cpf,
+      now: new Date(),
+    }),
+  );
+  const provider = checkProvider(fiscal);
+  return reserveAndEmit(tab.storeId, { tab_id: tab.id }, fiscal, provider, payload);
 }
 
 /** Cancela uma NFC-e autorizada (dentro do prazo). */
