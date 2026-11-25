@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -21,6 +21,9 @@ import { cashbackOf, earnAmount, validPhone } from "@/lib/domain/cashback";
 import { canSchedule, scheduleSlots } from "@/lib/domain/schedule";
 import { StorageFullError } from "@/lib/store/db";
 import { cn } from "@/lib/cn";
+import { productItem, purchaseOf } from "@/lib/domain/tracking";
+import { unitPrice } from "@/lib/domain/pricing";
+import { track, useStorePixels } from "@/components/cardapio/pixels";
 
 const CUSTOMER_KEY = "comanda:cliente";
 
@@ -74,6 +77,20 @@ export function Checkout({ slug }: { slug: string }) {
       // primeiro pedido
     }
   }, []);
+
+  // Pixel: liga na página e marca o início do fechamento uma vez, com a sacola que chegou aqui.
+  const readyStore = data.state === "ready" ? data.store : null;
+  useStorePixels(readyStore);
+  const checkoutTracked = useRef(false);
+  useEffect(() => {
+    if (!readyStore || data.state !== "ready" || !cart.loaded || checkoutTracked.current || !cart.lines.length) return;
+    checkoutTracked.current = true;
+    const items = cart.lines.flatMap((l) => {
+      const p = data.products.find((x) => x.id === l.productId);
+      return p ? [productItem(p, unitPrice(p, l.selections), l.quantity)] : [];
+    });
+    track(readyStore, { name: "begin_checkout", items, value: items.reduce((s, i) => s + i.price * i.quantity, 0) });
+  }, [readyStore, data, cart.loaded, cart.lines]);
 
   if (data.state === "loading" || !cart.loaded) return <div className="min-h-dvh" aria-busy="true" />;
   if (data.state === "missing") {
@@ -197,6 +214,7 @@ export function Checkout({ slug }: { slug: string }) {
       } catch {
         // não lembra os dados, sem problema
       }
+      track(store, purchaseOf(order));
       cart.clear();
       router.replace(`/${slug}/pedido/${order.id}`);
     } catch (err) {

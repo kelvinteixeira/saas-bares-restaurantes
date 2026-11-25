@@ -9,6 +9,7 @@ import { earnAmount, validPhone } from "@/lib/domain/cashback";
 import { scheduledLabel } from "@/lib/domain/schedule";
 import { isRemoteStore, loadPublicOrder, loadPublicStore, remotePending } from "@/lib/store/remote";
 import { supabaseConfigured } from "@/lib/supabase/client";
+import { useStorePixels } from "@/components/cardapio/pixels";
 import { BrandScope, StoreLogo, brandButton } from "@/components/cardapio/brand";
 import { customerStatusLabel, isOpenOrder, statusFlow, statusLabel } from "@/lib/domain/orders";
 import { formatClock, formatMoney, formatOrderNumber, onlyDigits } from "@/lib/format";
@@ -33,6 +34,8 @@ export function OrderTracking({ slug, id }: { slug: string; id: string }) {
     }, 10000);
     return () => window.clearInterval(timer);
   }, [slug, id]);
+
+  useStorePixels(db ? storeBySlug(db, slug) ?? null : null);
 
   if (!db) return <div className="min-h-dvh" aria-busy="true" />;
   const store = storeBySlug(db, slug);

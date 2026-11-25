@@ -26,6 +26,8 @@ export interface StoreRow {
   cashback?: Store["cashback"];
   /** Só existe depois do SQL 008. */
   scheduling?: Store["scheduling"];
+  /** Só existe depois do SQL 010. */
+  tracking?: Store["tracking"];
   next_order_number: number;
   created_at: string;
 }
@@ -113,6 +115,7 @@ export function rowToStore(r: StoreRow): Store {
     serviceFee: r.service_fee ?? undefined,
     cashback: r.cashback ?? undefined,
     scheduling: r.scheduling ?? undefined,
+    tracking: r.tracking ?? undefined,
     nextOrderNumber: r.next_order_number,
     createdAt: r.created_at,
   };
@@ -140,6 +143,7 @@ export function storeToUpdate(s: Store) {
     ...(s.serviceFee ? { service_fee: s.serviceFee } : {}),
     ...(s.cashback ? { cashback: s.cashback } : {}),
     ...(s.scheduling ? { scheduling: s.scheduling } : {}),
+    ...(s.tracking ? { tracking: s.tracking } : {}),
   };
 }
 

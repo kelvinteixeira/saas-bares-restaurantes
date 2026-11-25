@@ -9,6 +9,7 @@ import { HoursAndScheduling } from "@/components/painel/settings/schedule-settin
 import { DeliverySettings } from "@/components/painel/settings/delivery-settings";
 import { PaymentSettings } from "@/components/painel/settings/payment-settings";
 import { AccountSettings } from "@/components/painel/settings/account-settings";
+import { TrackingSettings } from "@/components/painel/settings/tracking-settings";
 import { usePainel } from "@/components/painel/painel-context";
 import { cn } from "@/lib/cn";
 
@@ -17,6 +18,7 @@ const TABS = [
   { id: "horarios", label: "Horários", view: HoursAndScheduling },
   { id: "atendimento", label: "Entrega e retirada", view: DeliverySettings },
   { id: "pagamento", label: "Pagamento", view: PaymentSettings },
+  { id: "pixel", label: "Pixel", view: TrackingSettings },
   { id: "conta", label: "Conta", view: AccountSettings },
 ] as const;
 

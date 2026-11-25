@@ -15,7 +15,9 @@ import { useToast } from "@/components/ui/toast";
 import { useNow } from "@/lib/hooks";
 import { storeStatus } from "@/lib/domain/hours";
 import { canSchedule } from "@/lib/domain/schedule";
-import { fromPrice, hasVariablePrice, lowestDeliveryFee } from "@/lib/domain/pricing";
+import { fromPrice, hasVariablePrice, lowestDeliveryFee, unitPrice } from "@/lib/domain/pricing";
+import { hasTracking, productItem } from "@/lib/domain/tracking";
+import { track, useStorePixels } from "@/components/cardapio/pixels";
 import { formatMoney, formatPhone, onlyDigits } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { DEMO_PHOTO_PREFIX } from "@/lib/demo-photos";
@@ -39,6 +41,7 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
 
   const store = data.state === "ready" ? data.store : null;
   const { setTable } = cart;
+  useStorePixels(store);
 
   // A mesa vem só do endereço (QR code com ?mesa=N). Abrir o link normal do cardápio limpa a mesa,
   // para quem abriu o QR antes não continuar "na mesa" depois.
@@ -229,7 +232,10 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
                       <button
                         type="button"
                         disabled={!p.available}
-                        onClick={() => setOpenProduct(p)}
+                        onClick={() => {
+                          setOpenProduct(p);
+                          track(s, { name: "view_item", item: productItem(p, fromPrice(p)) });
+                        }}
                         className="flex w-full items-start gap-4 py-4 text-left disabled:cursor-not-allowed"
                       >
                         <span className={cn("min-w-0 flex-1", !p.available && "opacity-55")}>
@@ -290,6 +296,9 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
                   </Link>
                 </p>
               )}
+              {hasTracking(s) && (
+                <p className="mt-6 text-xs">Esta loja mede as visitas ao cardápio com o Pixel da Meta e o Google Analytics, para divulgar melhor.</p>
+              )}
               <p className="mt-2 text-xs">
                 Cardápio digital por{" "}
                 <Link href="/" className="font-medium hover:underline">
@@ -335,6 +344,7 @@ export function PublicMenu({ slug, mesa }: { slug: string; mesa: number | null }
         onAdd={(selections, quantity, notes) => {
           if (!openProduct) return;
           cart.add(openProduct.id, selections, quantity, notes);
+          track(s, { name: "add_to_cart", item: productItem(openProduct, unitPrice(openProduct, selections), quantity) });
           toast(`${quantity}× ${openProduct.name} na sacola`);
           setOpenProduct(null);
         }}

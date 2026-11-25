@@ -68,6 +68,8 @@ export interface Store {
   cashback?: { enabled: boolean; rate: number; validDays: number };
   /** Pedido agendado. Sem valor = desligado. */
   scheduling?: { enabled: boolean; leadMinutes: number; maxDays: number };
+  /** Pixel da Meta e Google Analytics no cardápio. Sem valor = nenhum. */
+  tracking?: { metaPixelId?: string; gaId?: string };
   nextOrderNumber: number;
   createdAt: string; // ISO
 }
