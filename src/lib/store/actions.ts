@@ -28,6 +28,7 @@ import { isStoreOpen } from "@/lib/domain/hours";
 import { attachToTab } from "@/lib/domain/tabs";
 import { evaluateCoupon, normalizeCode } from "@/lib/domain/coupons";
 import { checkSchedule } from "@/lib/domain/schedule";
+import { convertCarts } from "@/lib/domain/recovery";
 import { applyCashbackOnStatus, balanceOf, cashbackOf, validPhone } from "@/lib/domain/cashback";
 import { getSupabase } from "@/lib/supabase/client";
 import {
@@ -560,6 +561,7 @@ function placeLocalOrder(db: Db, input: CheckoutInput): Order {
   }
   db.tabs ??= [];
   attachToTab(db.tabs, order, store, newId);
+  convertLocalCarts(db, order);
   db.orders.push(order);
   return order;
 }
@@ -599,4 +601,9 @@ export async function simulateOrder(storeId: string): Promise<Order | null> {
 /** Para a tela saber se a sessão atual é do Supabase. */
 export function hasRemoteSession(): boolean {
   return Boolean(getRemote().account);
+}
+
+/** Espelho local do trigger do SQL 011: pedido com o mesmo WhatsApp converte a sacola. */
+function convertLocalCarts(db: Db, order: Order) {
+  if (db.carts) db.carts = convertCarts(db.carts, order, new Date(order.createdAt));
 }

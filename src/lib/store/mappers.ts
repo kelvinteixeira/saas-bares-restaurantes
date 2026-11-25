@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
+import type { AbandonedCart, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -469,5 +469,39 @@ export function driverToRow(d: Driver): Omit<DriverRow, "created_at"> {
     pay_kind: d.payKind,
     pay_amount: d.payAmount,
     active: d.active,
+  };
+}
+
+// ---------- sacolas abandonadas (SQL 011) ----------
+
+export interface CartRow {
+  id: string;
+  store_id: string;
+  phone: string;
+  name: string;
+  items: AbandonedCart["items"];
+  subtotal: number;
+  mode: AbandonedCart["mode"] | null;
+  status: AbandonedCart["status"];
+  contacted_at: string | null;
+  order_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function rowToCart(r: CartRow): AbandonedCart {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    phone: r.phone,
+    name: r.name,
+    items: r.items ?? [],
+    subtotal: r.subtotal,
+    mode: r.mode ?? undefined,
+    status: r.status,
+    contactedAt: r.contacted_at ?? undefined,
+    orderId: r.order_id ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   };
 }

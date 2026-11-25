@@ -24,6 +24,7 @@ import { cn } from "@/lib/cn";
 import { productItem, purchaseOf } from "@/lib/domain/tracking";
 import { unitPrice } from "@/lib/domain/pricing";
 import { track, useStorePixels } from "@/components/cardapio/pixels";
+import { saveAbandonedCart, type CartSnapshot } from "@/lib/store/recovery";
 
 const CUSTOMER_KEY = "comanda:cliente";
 
@@ -390,7 +391,10 @@ export function Checkout({ slug }: { slug: string }) {
                 </div>
                 {mode !== "table" && (
                   <div id="f-phone">
-                    <Field label="WhatsApp" error={errors.phone} hint="A loja usa para avisar sobre o pedido.">
+                    {phone && !busy && cart.lines.length > 0 && (
+                      <CartSaver snapshot={{ storeId: store.id, phone, name: form.name, mode, lines: cart.lines, products }} />
+                    )}
+                    <Field label="WhatsApp" error={errors.phone} hint="A loja usa para avisar sobre o pedido e, se você não terminar, para te ajudar a finalizar.">
                       {(p) => (
                         <Input
                           {...p}
@@ -672,6 +676,21 @@ export function Checkout({ slug }: { slug: string }) {
       </div>
     </BrandScope>
   );
+}
+
+/**
+ * Recuperador de vendas: com WhatsApp válido e sacola cheia, guarda a sacola para a loja poder
+ * chamar se a pessoa desistir. Espera parar de digitar; some (e cancela) ao enviar o pedido.
+ */
+function CartSaver({ snapshot }: { snapshot: CartSnapshot }) {
+  const key = JSON.stringify([snapshot.storeId, snapshot.phone, snapshot.name, snapshot.mode, snapshot.lines]);
+  useEffect(() => {
+    const id = window.setTimeout(() => void saveAbandonedCart(snapshot), 1500);
+    return () => window.clearTimeout(id);
+    // A chave resume tudo o que importa da sacola.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return null;
 }
 
 /** Roda a nova conferência do cupom depois de desenhar (efeito, não durante o render). */

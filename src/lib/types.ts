@@ -191,6 +191,23 @@ export interface Order {
   driverPay?: number;
 }
 
+/** Sacola de quem chegou a digitar o WhatsApp no fechamento e não fez o pedido (recuperador de vendas). */
+export interface AbandonedCart {
+  id: string;
+  storeId: string;
+  phone: string;
+  name: string;
+  items: { productId: string; name: string; quantity: number; price: number }[];
+  subtotal: number;
+  mode?: "delivery" | "pickup";
+  /** open: ninguém chamou · contacted: a loja chamou no WhatsApp · converted: virou pedido · dismissed: descartada. */
+  status: "open" | "contacted" | "converted" | "dismissed";
+  contactedAt?: string;
+  orderId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Entregador da loja. Recebe a taxa de entrega do pedido ("fee") ou um valor fixo ("fixed"). */
 export interface Driver {
   id: string;
@@ -353,4 +370,5 @@ export interface Db {
   coupons?: Coupon[];
   cashbackEntries?: CashbackEntry[];
   drivers?: Driver[];
+  carts?: AbandonedCart[];
 }
