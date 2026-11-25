@@ -184,14 +184,16 @@ function OrderRow({
   onSelect: () => void;
   onAdvance: () => void;
 }) {
+  const { db } = usePainel();
   const action = advanceLabel(order);
   const late = isLate(order, now);
   const age = minutesBetween(new Date(order.createdAt), now);
+  const driver = order.driverId ? (db.drivers ?? []).find((d) => d.id === order.driverId) : undefined;
   const where =
     order.mode === "table"
       ? `Mesa ${order.tableNumber}`
       : order.mode === "delivery"
-        ? `Entrega · ${order.delivery?.regionName ?? ""}`
+        ? `Entrega · ${order.delivery?.regionName ?? ""}${driver ? ` · ${driver.name}` : ""}`
         : modeLabel(order.mode);
   const summary = order.items.map((it) => `${it.quantity}× ${it.name}`).join(", ");
 

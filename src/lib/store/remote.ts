@@ -7,7 +7,7 @@
 // - loadPublicOrder: pedido para a página de acompanhamento (RPC get_public_order).
 
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import type { Account, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
+import type { Account, Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, StoreRole, Tab } from "@/lib/types";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase/client";
 import { emptyRemote, getLocalDb, getRemote, setRemote, type RemoteState } from "@/lib/store/db";
 import {
@@ -19,6 +19,8 @@ import {
   rowToCashMovement,
   rowToCoupon,
   rowToCashbackEntry,
+  rowToDriver,
+  type DriverRow,
   type CashbackEntryRow,
   type CouponRow,
   rowToCashSession,
@@ -81,6 +83,12 @@ export function remoteUpsertCoupon(coupon: Coupon) {
 }
 export function remoteUpsertCashbackEntry(entry: CashbackEntry) {
   setRemote((r) => ({ ...r, cashbackEntries: upsertById(r.cashbackEntries, entry) }));
+}
+export function remoteUpsertDriver(driver: Driver) {
+  setRemote((r) => ({ ...r, drivers: upsertById(r.drivers, driver) }));
+}
+export function remoteRemoveDriver(id: string) {
+  setRemote((r) => ({ ...r, drivers: r.drivers.filter((d) => d.id !== id) }));
 }
 export function remoteRemoveCoupon(id: string) {
   setRemote((r) => ({ ...r, coupons: r.coupons.filter((c) => c.id !== id) }));
@@ -230,6 +238,9 @@ async function fetchOwner(user: User) {
     // Cashback (SQL 007): todo o histórico (o saldo depende dele); só dono e gerente leem.
     const cashbackRes = await sb.from("cashback_entries").select("*").eq("store_id", store.id).order("created_at").limit(5000);
     const cashbackEntries = cashbackRes.error ? [] : ((cashbackRes.data ?? []) as CashbackEntryRow[]).map(rowToCashbackEntry);
+    // Entregadores (SQL 009): a equipe toda lê.
+    const driversRes = await sb.from("drivers").select("*").eq("store_id", store.id).order("name");
+    const drivers = driversRes.error ? [] : ((driversRes.data ?? []) as DriverRow[]).map(rowToDriver);
 
     setRemote((r) => ({
       ...r,
@@ -244,6 +255,7 @@ async function fetchOwner(user: User) {
       cashMovements: replaceForStore(r.cashMovements, store.id, cashMovements),
       coupons: replaceForStore(r.coupons, store.id, coupons),
       cashbackEntries: replaceForStore(r.cashbackEntries, store.id, cashbackEntries),
+      drivers: replaceForStore(r.drivers, store.id, drivers),
       slugState: { ...r.slugState, [store.slug]: "done" },
     }));
     subscribeOrders(store.id, !tabsRes.error, hasCash, !cashbackRes.error);

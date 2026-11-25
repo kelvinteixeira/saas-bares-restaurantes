@@ -1,7 +1,7 @@
 // Conversão entre as linhas do Supabase (snake_case) e os tipos do app (src/lib/types.ts).
 // O esquema está em supabase/migrations/001_inicial.sql.
 
-import type { CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
+import type { Driver, CashbackEntry, CashMovement, CashSession, Category, Coupon, Order, Payment, Product, Store, Tab, WeeklyHours } from "@/lib/types";
 
 export interface StoreRow {
   id: string;
@@ -82,6 +82,9 @@ export interface OrderRow {
   cashback_used?: number;
   /** Coluna do SQL 008. */
   scheduled_for?: string | null;
+  /** Colunas do SQL 009. */
+  driver_id?: string | null;
+  driver_pay?: number;
 }
 
 function toHours(raw: StoreRow["hours"]): WeeklyHours {
@@ -207,6 +210,8 @@ export function rowToOrder(r: OrderRow): Order {
     couponCode: r.coupon_code ?? undefined,
     cashbackUsed: r.cashback_used || undefined,
     scheduledFor: r.scheduled_for ?? undefined,
+    driverId: r.driver_id ?? undefined,
+    driverPay: r.driver_pay || undefined,
   };
 }
 
@@ -422,5 +427,43 @@ export function rowToCashbackEntry(r: CashbackEntryRow): CashbackEntry {
     amount: r.amount,
     createdAt: r.created_at,
     expiresAt: r.expires_at ?? undefined,
+  };
+}
+
+// ---------- entregadores (SQL 009) ----------
+
+export interface DriverRow {
+  id: string;
+  store_id: string;
+  name: string;
+  phone: string;
+  pay_kind: Driver["payKind"];
+  pay_amount: number;
+  active: boolean;
+  created_at: string;
+}
+
+export function rowToDriver(r: DriverRow): Driver {
+  return {
+    id: r.id,
+    storeId: r.store_id,
+    name: r.name,
+    phone: r.phone,
+    payKind: r.pay_kind,
+    payAmount: r.pay_amount,
+    active: r.active,
+    createdAt: r.created_at,
+  };
+}
+
+export function driverToRow(d: Driver): Omit<DriverRow, "created_at"> {
+  return {
+    id: d.id,
+    store_id: d.storeId,
+    name: d.name,
+    phone: d.phone,
+    pay_kind: d.payKind,
+    pay_amount: d.payAmount,
+    active: d.active,
   };
 }

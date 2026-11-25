@@ -184,6 +184,21 @@ export interface Order {
   cashbackUsed?: number;
   /** Pedido agendado: o horário escolhido pelo cliente (o prazo prometido é o mesmo). */
   scheduledFor?: string;
+  /** Entregador escolhido e quanto ele recebe por esta entrega (guardado na hora da escolha). */
+  driverId?: string;
+  driverPay?: number;
+}
+
+/** Entregador da loja. Recebe a taxa de entrega do pedido ("fee") ou um valor fixo ("fixed"). */
+export interface Driver {
+  id: string;
+  storeId: string;
+  name: string;
+  phone: string;
+  payKind: "fee" | "fixed";
+  payAmount: number;
+  active: boolean;
+  createdAt: string;
 }
 
 /** Lançamento de cashback: ganho ao concluir um pedido, ou uso num pedido. */
@@ -335,4 +350,5 @@ export interface Db {
   cashMovements?: CashMovement[];
   coupons?: Coupon[];
   cashbackEntries?: CashbackEntry[];
+  drivers?: Driver[];
 }

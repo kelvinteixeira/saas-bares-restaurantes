@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, MessageCircle, Printer } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Bike, MessageCircle, Printer } from "lucide-react";
 import type { Order } from "@/lib/types";
 import {
   advanceLabel,
@@ -19,6 +20,9 @@ import { CashClosedNotice, PaymentForm, PaymentList, type PayInput } from "@/com
 import { openSession, orderDue, orderPaid } from "@/lib/domain/cash";
 import { registerPayment } from "@/lib/store/cash";
 import { scheduledLabel } from "@/lib/domain/schedule";
+import { dispatchLink, payLabel } from "@/lib/domain/drivers";
+import { assignDriver } from "@/lib/store/drivers";
+import { Select } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { OrderStatusPill } from "@/components/painel/order-status-pill";
 import { attempt, useToast } from "@/components/ui/toast";
@@ -96,6 +100,7 @@ export function OrderDetail({ order, now, onBack }: { order: Order; now: Date; o
             {formatPhone(order.customer.phone)}
           </a>
         )}
+        {order.mode === "delivery" && <OrderDriver order={order} />}
       </section>
 
       <section className="mt-5 border-t border-rule pt-4">
@@ -267,6 +272,78 @@ function OrderPayment({ order }: { order: Order }) {
       {due > 0 && open && cashOpen && (
         <div className="mt-3">
           <PaymentForm key={due} due={due} onPay={pay} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Entregador do pedido de entrega: escolher (caixa, gerente, dono) e mandar pelo WhatsApp. */
+function OrderDriver({ order }: { order: Order }) {
+  const { db, store, role } = usePainel();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const drivers = (db.drivers ?? []).filter((d) => d.storeId === store.id);
+  const current = drivers.find((d) => d.id === order.driverId);
+  const canAssign = role === "owner" || role === "manager" || role === "cashier";
+  const choices = drivers.filter((d) => d.active || d.id === order.driverId).sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!canAssign || order.status === "cancelado") {
+    return current ? (
+      <p className="mt-3 flex items-center gap-1.5 text-sm">
+        <Bike className="size-4 text-muted" strokeWidth={1.5} aria-hidden="true" />
+        Entregador: {current.name}
+      </p>
+    ) : null;
+  }
+  if (drivers.length === 0) {
+    return (
+      <p className="no-print mt-3 text-[13px] text-muted">
+        Cadastre os entregadores em <Link href="/painel/entregadores" className="font-medium text-accent hover:underline">Entregadores</Link> para escolher aqui.
+      </p>
+    );
+  }
+
+  async function choose(id: string) {
+    setBusy(true);
+    const next = drivers.find((d) => d.id === id);
+    await attempt(toast, () => assignDriver(order.id, id || null), next ? `Entregador: ${next.name}` : "Sem entregador");
+    setBusy(false);
+  }
+
+  return (
+    <div className="mt-3 rounded-card border border-line p-3">
+      <label className="flex flex-col gap-1.5 text-sm">
+        <span className="flex items-center gap-1.5 font-medium">
+          <Bike className="size-4 text-muted" strokeWidth={1.5} aria-hidden="true" />
+          Entregador
+        </span>
+        <Select className="no-print" value={order.driverId ?? ""} disabled={busy} onChange={(e) => void choose(e.target.value)}>
+          <option value="">Escolher…</option>
+          {choices.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+              {d.active ? "" : " (desativado)"}
+            </option>
+          ))}
+        </Select>
+        <span className="hidden print:block">{current?.name ?? "—"}</span>
+      </label>
+      {current && (
+        <div className="no-print mt-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[13px] text-muted">
+            {payLabel(current)}
+            {order.driverPay ? ` · nesta: ${formatMoney(order.driverPay)}` : ""}
+          </span>
+          <a
+            href={dispatchLink(order, store, current, orderDue(order, (db.payments ?? []).filter((pay) => pay.orderId === order.id)))}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center gap-1.5 rounded-control border border-control px-3 text-sm font-medium hover:bg-raised"
+          >
+            <MessageCircle className="size-4" strokeWidth={1.5} aria-hidden="true" />
+            {current.phone ? "Mandar pelo WhatsApp" : "Abrir no WhatsApp"}
+          </a>
         </div>
       )}
     </div>

@@ -14,7 +14,7 @@ export const ROLE_LABEL: Record<StoreRole, string> = {
 export const ROLE_HINT: Record<StoreRole, string> = {
   owner: "Tudo, inclusive a equipe.",
   manager: "Tudo, menos a equipe.",
-  cashier: "Caixa, PDV, pedidos, mesas e a tela de preparo.",
+  cashier: "Caixa, PDV, pedidos, mesas, entregas e a tela de preparo.",
   waiter: "Pedidos e mesas.",
   kitchen: "Só a tela de preparo.",
 };
@@ -23,9 +23,9 @@ export const ROLE_HINT: Record<StoreRole, string> = {
 export const INVITABLE_ROLES = ["manager", "cashier", "waiter", "kitchen"] as const satisfies readonly StoreRole[];
 
 const PAGES: Record<StoreRole, readonly string[]> = {
-  owner: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/cupons", "/painel/cashback", "/painel/relatorios", "/painel/equipe", "/painel/configuracoes"],
-  manager: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/cupons", "/painel/cashback", "/painel/relatorios", "/painel/configuracoes"],
-  cashier: ["/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/mesas"],
+  owner: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/entregadores", "/painel/cupons", "/painel/cashback", "/painel/relatorios", "/painel/equipe", "/painel/configuracoes"],
+  manager: ["/painel", "/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/cardapio", "/painel/mesas", "/painel/entregadores", "/painel/cupons", "/painel/cashback", "/painel/relatorios", "/painel/configuracoes"],
+  cashier: ["/painel/pedidos", "/painel/pdv", "/painel/caixa", "/painel/cozinha", "/painel/mesas", "/painel/entregadores"],
   waiter: ["/painel/pedidos", "/painel/mesas"],
   kitchen: ["/painel/cozinha"],
 };
